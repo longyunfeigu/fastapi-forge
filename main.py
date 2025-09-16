@@ -13,7 +13,7 @@ from core.exceptions import register_exception_handlers
 from core.response import success_response
 from core.logging_config import get_logger
 from infrastructure.database import create_tables
-from infrastructure.external.cache import init_redis_cache, shutdown_redis_cache
+from infrastructure.cache import init_redis_cache, shutdown_redis_cache
 
 
 # 获取logger

@@ -2,9 +2,8 @@
 用户API路由 - FastAPI表现层
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Security
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from typing import List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from application.user_service import UserApplicationService
 from core.response import success_response, error_response, paginated_response, BusinessCode
@@ -19,22 +18,17 @@ from application.dto import (
     LoginDTO, TokenDTO, ChangePasswordDTO,
     MessageDTO, PaginationParams
 )
-from infrastructure.database import get_db
-from infrastructure.repositories.user_repository import SQLAlchemyUserRepository
-from api.dependencies import get_current_user, get_current_active_user, get_current_superuser
+from api.dependencies import (
+    get_current_user,
+    get_current_active_user,
+    get_current_superuser,
+    get_user_service,
+)
 
 router = APIRouter(
     prefix="/users",
     tags=["用户管理"]
 )
-
-
-def get_user_service(db: AsyncSession = Depends(get_db)) -> UserApplicationService:
-    """依赖注入：获取用户应用服务"""
-    repository = SQLAlchemyUserRepository(db)
-    return UserApplicationService(repository)
-
-
 @router.post("/register", summary="用户注册")
 async def register(
     user_data: UserCreateDTO,

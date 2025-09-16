@@ -1,8 +1,7 @@
 """
 数据库配置和连接管理
 """
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.engine import make_url
 from typing import AsyncGenerator
 
@@ -39,29 +38,17 @@ engine = create_async_engine(
 )
 
 # 创建异步会话工厂 (SQLAlchemy 1.4 兼容)
-AsyncSessionLocal = sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
+AsyncSessionLocal = async_sessionmaker(
+    bind=engine,
+    expire_on_commit=False,
 )
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    依赖注入：获取数据库会话
-    
-    使用异步上下文管理器确保会话的正确管理：
-    - 成功时提交事务
-    - 异常时回滚事务
-    - 最终关闭会话
-    """
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """获取数据库会话（不自动提交，由调用方控制事务）"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         finally:
             await session.close()
 

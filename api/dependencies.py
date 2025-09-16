@@ -3,13 +3,11 @@ API依赖项 - 认证和授权
 """
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from application.user_service import UserApplicationService
 from application.dto import UserResponseDTO
-from infrastructure.database import get_db
-from infrastructure.repositories.user_repository import SQLAlchemyUserRepository
+from infrastructure.unit_of_work import SQLAlchemyUnitOfWork
 
 # OAuth2 password bearer for Swagger UI
 oauth2_scheme = OAuth2PasswordBearer(
@@ -45,14 +43,15 @@ async def get_token(
     )
 
 
+async def get_user_service() -> UserApplicationService:
+    return UserApplicationService(uow_factory=SQLAlchemyUnitOfWork)
+
+
 async def get_current_user(
     token: str = Depends(get_token),
-    db: AsyncSession = Depends(get_db)
+    service: UserApplicationService = Depends(get_user_service)
 ) -> UserResponseDTO:
     """获取当前登录用户"""
-    repository = SQLAlchemyUserRepository(db)
-    service = UserApplicationService(repository)
-    
     user_id = await service.verify_token(token)
     if user_id is None:
         raise HTTPException(
