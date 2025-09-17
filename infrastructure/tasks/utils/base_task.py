@@ -14,13 +14,11 @@ class BaseTask(Task):
         """Emit a structured error message before the default Celery handling."""
         logger.error(
             "celery_task_failure",
-            extra={
-                "task_id": task_id,
-                "task_name": self.name,
-                "args": args,
-                "kwargs": kwargs,
-                "exc": str(exc),
-            },
+            task_id=task_id,
+            task_name=self.name,
+            args=args,
+            kwargs=kwargs,
+            exc=str(exc),
         )
         super().on_failure(exc, task_id, args, kwargs, einfo)
 
@@ -28,9 +26,7 @@ class BaseTask(Task):
         """Log a success event so operators can trace normal execution."""
         logger.info(
             "celery_task_success",
-            extra={
-                "task_id": task_id,
-                "task_name": self.name,
-            },
+            task_id=task_id,
+            task_name=self.name,
         )
         super().on_success(retval, task_id, args, kwargs)

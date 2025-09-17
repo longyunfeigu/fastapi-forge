@@ -62,6 +62,34 @@ class Settings(BaseSettings):
     REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO: float = Field(default=0.6, env="REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO")
     REDIS_LOCK_AUTO_RENEW_JITTER_RATIO: float = Field(default=0.1, env="REDIS_LOCK_AUTO_RENEW_JITTER_RATIO")
     
+    # 存储服务配置
+    STORAGE_TYPE: str = Field(default="local", env="STORAGE_TYPE")  # local, s3, oss
+    STORAGE_BUCKET: Optional[str] = Field(default=None, env="STORAGE_BUCKET")
+    STORAGE_REGION: Optional[str] = Field(default=None, env="STORAGE_REGION")
+    STORAGE_ENDPOINT: Optional[str] = Field(default=None, env="STORAGE_ENDPOINT")
+    STORAGE_PUBLIC_BASE_URL: Optional[str] = Field(default=None, env="STORAGE_PUBLIC_BASE_URL")
+    
+    # S3 specific
+    AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None, env="AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None, env="AWS_SECRET_ACCESS_KEY")
+    S3_SSE: Optional[str] = Field(default=None, env="S3_SSE")
+    S3_ACL: str = Field(default="private", env="S3_ACL")
+    
+    # OSS specific
+    OSS_ACCESS_KEY_ID: Optional[str] = Field(default=None, env="OSS_ACCESS_KEY_ID")
+    OSS_ACCESS_KEY_SECRET: Optional[str] = Field(default=None, env="OSS_ACCESS_KEY_SECRET")
+    
+    # Local storage specific
+    STORAGE_LOCAL_BASE_PATH: str = Field(default="/tmp/storage", env="STORAGE_LOCAL_BASE_PATH")
+    
+    # Storage advanced settings
+    STORAGE_MAX_RETRY_ATTEMPTS: int = Field(default=3, env="STORAGE_MAX_RETRY_ATTEMPTS")
+    STORAGE_TIMEOUT: int = Field(default=30, env="STORAGE_TIMEOUT")
+    STORAGE_ENABLE_SSL: bool = Field(default=True, env="STORAGE_ENABLE_SSL")
+    STORAGE_PRESIGN_MAX_SIZE: int = Field(default=100 * 1024 * 1024, env="STORAGE_PRESIGN_MAX_SIZE")  # 100MB
+    STORAGE_VALIDATION_ENABLED: bool = Field(default=False, env="STORAGE_VALIDATION_ENABLED")
+    STORAGE_MAX_FILE_SIZE: int = Field(default=100 * 1024 * 1024, env="STORAGE_MAX_FILE_SIZE")  # 100MB
+    
     # pydantic-settings v2 configuration
     model_config = SettingsConfigDict(
         env_file=".env",

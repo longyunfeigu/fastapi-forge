@@ -222,31 +222,28 @@ class BaseAPIClient:
         return f"{self.base_url}/{endpoint}"
     
     def _log_request(self, method: str, url: str, **kwargs):
-        """记录请求日志"""
+        """记录请求日志（结构化字段）。"""
         if self.debug:
+            headers = kwargs.get("headers", {}) or {}
+            redacted = {k: v for k, v in headers.items() if k.lower() != "authorization"}
             logger.debug(
-                f"API Request: {method} {url}",
-                extra={
-                    "method": method,
-                    "url": url,
-                    "params": kwargs.get("params"),
-                    "json": kwargs.get("json"),
-                    "headers": {k: v for k, v in kwargs.get("headers", {}).items() 
-                              if k.lower() != "authorization"}
-                }
+                "api_request",
+                method=method,
+                url=url,
+                params=kwargs.get("params"),
+                json=kwargs.get("json"),
+                headers=redacted,
             )
     
     def _log_response(self, response: APIResponse):
-        """记录响应日志"""
+        """记录响应日志（结构化字段）。"""
         if self.debug:
             logger.debug(
-                f"API Response: {response.status_code}",
-                extra={
-                    "status_code": response.status_code,
-                    "elapsed_ms": response.elapsed_ms,
-                    "request_id": response.request_id,
-                    "data": response.data if response.status_code < 400 else None
-                }
+                "api_response",
+                status_code=response.status_code,
+                elapsed_ms=response.elapsed_ms,
+                request_id=response.request_id,
+                data=(response.data if response.status_code < 400 else None),
             )
     
     def _handle_error_response(self, status_code: int, response: APIResponse):

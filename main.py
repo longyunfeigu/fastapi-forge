@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from api.routes import user
+from api.routes import storage as storage_routes
 from api.middleware import RequestIDMiddleware, LoggingMiddleware
 from core.config import settings
 from core.exceptions import register_exception_handlers
@@ -15,6 +16,12 @@ from infrastructure.database import create_tables
 from infrastructure.external.cache import (
     init_redis_client,
     shutdown_redis_client,
+)
+from infrastructure.external.storage import (
+    init_storage_client,
+    shutdown_storage_client,
+    get_storage_config,
+    StorageType
 )
 
 
@@ -43,11 +50,37 @@ async def lifespan(app: FastAPI):
                 "redis_cache_init_failed",
                 error=str(exc)
             )
+    
+    # 初始化存储服务（根据配置自动选择 provider；本地为默认）
+    try:
+        await init_storage_client()
+        config = get_storage_config()
+        logger.info(
+            "storage_initialized",
+            message="存储服务初始化完成",
+            provider=config.type,
+            bucket=config.bucket,
+        )
+        # 执行健康检查
+        from infrastructure.external.storage import get_storage_client
+        storage = get_storage_client()
+        if storage and await storage.health_check():
+            logger.info("storage_health_check_passed", message="存储服务健康检查通过")
+    except Exception as exc:
+        logger.error(
+            "storage_init_failed",
+            error=str(exc),
+        )
+    
     yield
     # 关闭时的清理工作
     if settings.REDIS_URL:
         await shutdown_redis_client()
         logger.info("redis_cache_shutdown", message="Redis缓存已关闭")
+    
+    # 关闭存储服务
+    await shutdown_storage_client()
+    logger.info("storage_shutdown", message="存储服务已关闭")
     logger.info("application_shutdown", message="应用关闭")
 
 
@@ -87,6 +120,7 @@ register_exception_handlers(app)
 
 # 注册路由
 app.include_router(user.router, prefix="/api/v1")
+app.include_router(storage_routes.router, prefix="/api/v1")
 
 
 # 根路径

@@ -174,22 +174,31 @@ class UserApplicationService:
             return await uow.user_repository.delete(user_id)
     
     async def verify_token(self, token: str) -> Optional[int]:
-        """验证JWT令牌并返回用户ID"""
+        """验证JWT令牌并返回用户ID。
+
+        - 过期: 抛出 TokenExpiredException（供上层统一处理，返回 401 + 过期语义）。
+        - 无效: 返回 None（上层保持当前行为，返回 401 无效凭据）。
+        """
         try:
             payload = jwt.decode(
                 token,
                 settings.SECRET_KEY,
-                algorithms=[settings.ALGORITHM]
+                algorithms=[settings.ALGORITHM],
             )
-            token_type = payload.get("type", "access")
-            if token_type != "access":
-                return None
-            user_id = payload.get("sub")
-            if user_id is None:
-                return None
-            return int(user_id)
-        except jwt.PyJWTError:
+        except jwt.ExpiredSignatureError:
+            # 令牌过期，抛出以便全局异常处理器映射到 TOKEN_EXPIRED
+            raise TokenExpiredException()
+        except jwt.InvalidTokenError:
+            # 其它无效情况（签名错误、格式错误等）
             return None
+
+        token_type = payload.get("type", "access")
+        if token_type != "access":
+            return None
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+        return int(user_id)
     
     def _create_access_token(self, user: User) -> str:
         """创建访问令牌"""

@@ -23,4 +23,4 @@ def send_welcome_email(self, user_id: int, email: str) -> None:
 
     Replace the body with real email integration (SMTP/ESP).
     """
-    logger.info("send_welcome_email", extra={"user_id": user_id, "email": email})
+    logger.info("send_welcome_email", user_id=user_id, email=email)
