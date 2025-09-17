@@ -108,14 +108,3 @@ def get_client_ip() -> Optional[str]:
         当前请求的客户端IP，如果不在请求上下文中则返回None
     """
     return client_ip_var.get()
-
-
-def set_user_id(user_id: str) -> None:
-    """
-    设置当前用户ID到context
-    
-    Args:
-        user_id: 用户ID
-    """
-    user_id_var.set(user_id)
-    structlog.contextvars.bind_contextvars(user_id=user_id)

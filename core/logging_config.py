@@ -1,73 +1,70 @@
 """
 Structlog 日志配置模块
 """
-import sys
+import logging
 import structlog
 from structlog.processors import TimeStamper, add_log_level, JSONRenderer
 from structlog.dev import ConsoleRenderer
 from structlog.contextvars import merge_contextvars
-from typing import Any, Dict, List
+from structlog.stdlib import ProcessorFormatter
+from typing import Any, List
 
 from core.config import settings
 
 
 def get_renderer() -> Any:
-    """
-    根据环境选择渲染器
-    
-    Returns:
-        日志渲染器
-    """
+    """根据环境选择渲染器 (Console in DEBUG, JSON otherwise)"""
     if settings.DEBUG:
-        # 开发环境：使用彩色控制台输出
         return ConsoleRenderer(colors=True)
-    else:
-        # 生产环境：使用JSON格式
-        return JSONRenderer()
+    return JSONRenderer()
 
 
 def configure_logging() -> None:
-    """
-    配置structlog
-    """
-    # 设置时间戳格式
+    """配置 structlog 并桥接标准库 logging 到同一处理链。"""
     timestamper = TimeStamper(fmt="iso")
-    
-    # 配置处理器链
-    processors: List[Any] = [
-        # 合并contextvars中的上下文信息
+
+    # 预处理链（同时用于 stdlib ProcessorFormatter 和 structlog.configure）
+    shared_pre_chain: List[Any] = [
         merge_contextvars,
-        # 添加时间戳
-        timestamper,
-        # 添加日志级别
         add_log_level,
-        # 开发环境下添加额外信息
+        timestamper,
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
-        # 使用环境相关的渲染器
-        get_renderer(),
     ]
-    
-    # 配置structlog
+
+    # 配置 structlog —— 交由 ProcessorFormatter 渲染
     structlog.configure(
-        processors=processors,
+        processors=[
+            *shared_pre_chain,
+            ProcessorFormatter.wrap_for_formatter,
+        ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
 
+    # 标准库 logging 使用 ProcessorFormatter，把 stdlib 日志也纳入 structlog 渲染
+    renderer = get_renderer()
+    formatter = ProcessorFormatter(
+        foreign_pre_chain=shared_pre_chain,
+        processors=[
+            ProcessorFormatter.remove_processors_meta,
+            renderer,
+        ],
+    )
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.DEBUG if settings.DEBUG else logging.INFO)
+
 
 def get_logger(name: str = __name__) -> structlog.stdlib.BoundLogger:
-    """
-    获取logger实例
-    
-    Args:
-        name: logger名称
-        
-    Returns:
-        配置好的logger实例
-    """
+    """获取 structlog logger 实例。"""
     return structlog.get_logger(name)
 
 

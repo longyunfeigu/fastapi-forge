@@ -13,13 +13,15 @@ from infrastructure.unit_of_work import SQLAlchemyUnitOfWork
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/users/login",
     scheme_name="OAuth2",
-    description="Login with username and password to get token"
+    description="Login with username and password to get token",
+    auto_error=False,
 )
 
 # HTTP Bearer for direct API calls
 http_bearer = HTTPBearer(
     scheme_name="Bearer",
-    description="JWT Bearer token authentication"
+    description="JWT Bearer token authentication",
+    auto_error=False,
 )
 
 
@@ -59,14 +61,7 @@ async def get_current_user(
             detail="无效的认证凭据",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    try:
-        return await service.get_user(user_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="用户不存在"
-        )
+    return await service.get_user(user_id)
 
 
 async def get_current_active_user(

@@ -10,12 +10,13 @@ REST API客户端基类
 """
 import asyncio
 import json
+import logging
 from typing import Dict, Any, Optional, Union, Type, TypeVar
 from dataclasses import dataclass
 from enum import Enum
 import httpx
 from pydantic import BaseModel
-import logging
+from core.logging_config import get_logger
 from datetime import datetime
 
 from tenacity import (
@@ -26,7 +27,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -329,7 +330,7 @@ class BaseAPIClient:
         # 处理JSON数据
         if json_data:
             if isinstance(json_data, BaseModel):
-                json_data = json_data.dict(exclude_unset=True)
+                json_data = json_data.model_dump(exclude_unset=True)
         
         # 记录请求
         self._log_request(method, url, params=params, json=json_data, headers=request_headers)
@@ -404,7 +405,7 @@ class BaseAPIClient:
                 max=self.retry_delay * 8
             ),
             retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError, RetryableAPIError)),
-            before_sleep=before_sleep_log(logger, logging.WARNING)
+            before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING)
         )
 
         try:

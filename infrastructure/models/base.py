@@ -1,10 +1,12 @@
 """
-数据库模型基类
+数据库模型基类（SQLAlchemy 2.0 风格）
 """
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 
-# 创建基类 - 所有模型都继承这个类
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
+
 
 # 元数据对象用于数据库迁移
 metadata = Base.metadata

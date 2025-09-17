@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional, Callable
+import inspect
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +18,10 @@ class SQLAlchemyUnitOfWork(AbstractUnitOfWork):
         self,
         session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
         session: Optional[AsyncSession] = None,
+        *,
+        readonly: bool = False,
     ) -> None:
-        super().__init__()
+        super().__init__(readonly=readonly)
         self._session_factory = session_factory
         self._external_session = session
         self.session: Optional[AsyncSession] = session
@@ -28,20 +31,32 @@ class SQLAlchemyUnitOfWork(AbstractUnitOfWork):
         if self.session is None:
             self.session = self._session_factory()
         self.user_repository = SQLAlchemyUserRepository(self.session)
-        self._transaction = await self.session.begin()
+        # 仅在非只读模式下显式开启事务
+        if not self._readonly:
+            self._transaction = await self.session.begin()
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         try:
             await super().__aexit__(exc_type, exc, tb)
         finally:
-            if hasattr(self, "_transaction") and self._transaction.is_active:
-                await self._transaction.close()
+            # 事务在 commit/rollback 后通常会结束，这里仅在仍然活动时做安全关闭
+            tx = getattr(self, "_transaction", None)
+            if tx is not None and getattr(tx, "is_active", False):
+                close = getattr(tx, "close", None)
+                if callable(close):
+                    res = close()
+                    if inspect.isawaitable(res):
+                        await res
             if self._external_session is None and self.session is not None:
                 await self.session.close()
                 self.session = None
 
     async def commit(self) -> None:
+        if self._readonly:
+            # 只读情况下不提交
+            self._committed = True
+            return
         if self.session and self.session.in_transaction():
             await self.session.commit()
         self._committed = True

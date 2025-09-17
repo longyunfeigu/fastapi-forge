@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+from core.logging_config import get_logger
 import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
@@ -20,8 +20,9 @@ from redis import asyncio as aioredis
 from redis.exceptions import RedisError
 
 from core.config import settings
+import socket
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 T = TypeVar('T')
 
@@ -103,13 +104,13 @@ class CacheInterface(ABC):
         pass
     
     @abstractmethod
-    async def delete(self, key: str) -> bool:
-        """删除缓存"""
+    async def delete(self, *keys: str) -> int:
+        """删除一个或多个键，返回删除的数量"""
         pass
     
     @abstractmethod
-    async def exists(self, key: str) -> bool:
-        """判断缓存是否存在"""
+    async def exists(self, *keys: str) -> int:
+        """判断一个或多个键是否存在，返回存在的数量"""
         pass
     
     @abstractmethod
@@ -804,28 +805,24 @@ class RedisClient(CacheInterface):
             return "none"
     
     async def keys(self, pattern: str = '*') -> List[str]:
-        """查找匹配的键"""
+        """查找匹配的键（使用 SCAN 迭代，避免 KEYS 阻塞）"""
         try:
             if self._namespace:
-                if pattern == '*':
-                    formatted_pattern = f"{self._namespace}:*"
-                else:
-                    formatted_pattern = self._format_key(pattern)
+                formatted_pattern = self._format_key(pattern if pattern != '*' else '*')
             else:
                 formatted_pattern = pattern
-            
-            keys = await self._execute_with_metrics(
-                self._client.keys, formatted_pattern
-            )
-            
-            # 移除命名空间前缀
-            if self._namespace:
-                prefix_len = len(self._namespace) + 1
-                return [
-                    k[prefix_len:] for k in keys
-                    if k.startswith(f"{self._namespace}:")
-                ]
-            return keys
+
+            collected: List[str] = []
+            async for k in self._client.scan_iter(match=formatted_pattern):
+                if self._namespace:
+                    prefix = f"{self._namespace}:"
+                    if k.startswith(prefix):
+                        collected.append(k[len(prefix):])
+                    else:
+                        collected.append(k)
+                else:
+                    collected.append(k)
+            return collected
         except RedisError as e:
             logger.error(f"查找键失败: {e}")
             return []
@@ -1136,17 +1133,22 @@ async def init_redis_client(
         
         try:
             # 创建Redis连接
+            # 构建跨平台 keepalive 选项（若可用）
+            keepalive_opts = {}
+            if hasattr(socket, "TCP_KEEPIDLE") and hasattr(socket, "TCP_KEEPINTVL") and hasattr(socket, "TCP_KEEPCNT"):
+                keepalive_opts = {
+                    socket.TCP_KEEPIDLE: 1,
+                    socket.TCP_KEEPINTVL: 1,
+                    socket.TCP_KEEPCNT: 3,
+                }
+
             client = aioredis.from_url(
                 settings.REDIS_URL,
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=settings.REDIS_MAX_CONNECTIONS,
                 socket_keepalive=True,
-                socket_keepalive_options={
-                    1: 1,  # TCP_KEEPIDLE
-                    2: 1,  # TCP_KEEPINTVL
-                    3: 3,  # TCP_KEEPCNT
-                },
+                socket_keepalive_options=keepalive_opts,
                 **kwargs
             )
             

@@ -2,48 +2,13 @@
 统一响应格式定义
 """
 from typing import Any, Optional, Generic, TypeVar
-from pydantic import BaseModel, field_serializer
-from datetime import datetime
-from enum import IntEnum
+from pydantic import BaseModel, Field, field_serializer
+from pydantic.generics import GenericModel
+from datetime import datetime, timezone
+from shared.codes import BusinessCode
 
 
 T = TypeVar("T")
-
-
-class BusinessCode(IntEnum):
-    """业务状态码定义"""
-    
-    # 成功
-    SUCCESS = 0
-    
-    # 参数错误 (1xxxx)
-    PARAM_ERROR = 10000
-    PARAM_MISSING = 10001
-    PARAM_TYPE_ERROR = 10002
-    PARAM_VALIDATION_ERROR = 10003
-    
-    # 业务错误 (2xxxx)
-    BUSINESS_ERROR = 20000
-    USER_NOT_FOUND = 20001
-    USER_ALREADY_EXISTS = 20002
-    PASSWORD_ERROR = 20003
-    TOKEN_INVALID = 20004
-    TOKEN_EXPIRED = 20005
-    
-    # 权限错误 (3xxxx)
-    PERMISSION_ERROR = 30000
-    UNAUTHORIZED = 30001
-    FORBIDDEN = 30002
-    
-    # 系统错误 (4xxxx)
-    SYSTEM_ERROR = 40000
-    DATABASE_ERROR = 40001
-    NETWORK_ERROR = 40002
-    SERVICE_UNAVAILABLE = 40003
-    
-    # 限流错误 (5xxxx)
-    RATE_LIMIT_ERROR = 50000
-    TOO_MANY_REQUESTS = 50001
 
 
 class ErrorDetail(BaseModel):
@@ -52,15 +17,21 @@ class ErrorDetail(BaseModel):
     details: Optional[dict] = None
     field: Optional[str] = None
     request_id: Optional[str] = None
-    timestamp: datetime = datetime.utcnow()
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     @field_serializer('timestamp')
     def serialize_timestamp(self, timestamp: datetime) -> str:
-        """序列化时间戳"""
-        return timestamp.isoformat()
+        """序列化时间戳为 UTC ISO8601，统一使用 Z 结尾"""
+        ts = timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        else:
+            ts = ts.astimezone(timezone.utc)
+        s = ts.isoformat()
+        return s.replace("+00:00", "Z")
 
 
-class Response(BaseModel, Generic[T]):
+class Response(GenericModel, Generic[T]):
     """统一响应模型"""
     code: int
     message: str
@@ -68,7 +39,7 @@ class Response(BaseModel, Generic[T]):
     error: Optional[ErrorDetail] = None
 
 
-class PaginatedData(BaseModel, Generic[T]):
+class PaginatedData(GenericModel, Generic[T]):
     """分页数据模型"""
     items: list[T]
     total: int

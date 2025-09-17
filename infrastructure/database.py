@@ -45,12 +45,12 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """获取数据库会话（不自动提交，由调用方控制事务）"""
+    """获取数据库会话（不自动提交，由调用方控制事务）
+
+    使用异步上下文管理器自动关闭会话，无需显式 close。
+    """
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
 
 
 async def create_tables():

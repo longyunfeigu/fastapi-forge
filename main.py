@@ -3,7 +3,6 @@ FastAPI应用主入口
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer
 from contextlib import asynccontextmanager
 
 from api.routes import user
@@ -13,7 +12,10 @@ from core.exceptions import register_exception_handlers
 from core.response import success_response
 from core.logging_config import get_logger
 from infrastructure.database import create_tables
-from infrastructure.cache import init_redis_cache, shutdown_redis_cache
+from infrastructure.external.cache import (
+    init_redis_client,
+    shutdown_redis_client,
+)
 
 
 # 获取logger
@@ -23,12 +25,18 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    # 启动时创建数据库表
-    await create_tables()
-    logger.info("database_initialized", message="数据库表创建完成")
+    # 启动时创建数据库表（仅开发环境）。生产应使用 Alembic 迁移
+    if settings.DEBUG:
+        await create_tables()
+        logger.info("database_initialized", message="数据库表创建完成 (development)")
+    else:
+        logger.info(
+            "database_migrations_required",
+            message="生产环境不自动建表，请使用 Alembic 迁移 (alembic upgrade head)"
+        )
     if settings.REDIS_URL:
         try:
-            await init_redis_cache()
+            await init_redis_client()
             logger.info("redis_cache_initialized", message="Redis缓存初始化完成")
         except Exception as exc:
             logger.error(
@@ -38,17 +46,10 @@ async def lifespan(app: FastAPI):
     yield
     # 关闭时的清理工作
     if settings.REDIS_URL:
-        await shutdown_redis_cache()
+        await shutdown_redis_client()
         logger.info("redis_cache_shutdown", message="Redis缓存已关闭")
     logger.info("application_shutdown", message="应用关闭")
 
-
-# 配置JWT Bearer认证
-bearer_scheme = HTTPBearer(
-    scheme_name="JWT",
-    description="Enter: **Bearer &lt;token&gt;**",
-    auto_error=False
-)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

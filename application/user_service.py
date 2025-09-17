@@ -1,7 +1,7 @@
 """
 用户应用服务 - 编排领域服务和处理应用逻辑
 """
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Tuple
 from datetime import datetime, timedelta, timezone
 import jwt
 
@@ -13,6 +13,8 @@ from .dto import (
     LoginDTO, TokenDTO, ChangePasswordDTO
 )
 from core.config import settings
+from domain.common.exceptions import UserNotFoundException, UserInactiveException
+from core.exceptions import UnauthorizedException, TokenExpiredException
 
 
 class UserApplicationService:
@@ -21,24 +23,57 @@ class UserApplicationService:
     def __init__(self, uow_factory: Callable[[], AbstractUnitOfWork]):
         self._uow_factory = uow_factory
     
+    async def _is_first_user_candidate(self) -> bool:
+        """判断当前是否可能为首个用户（只读查询）。"""
+        async with self._uow_factory(readonly=True) as uow:
+            total = await uow.user_repository.count_all()
+            return int(total) == 0
+
     async def register_user(self, user_data: UserCreateDTO) -> UserResponseDTO:
-        """注册新用户"""
-        async with self._uow_factory() as uow:
-            domain_service = UserDomainService(uow.user_repository)
-            user = await domain_service.register_user(
-                username=user_data.username,
-                email=user_data.email,
-                password=user_data.password,
-                full_name=user_data.full_name,
-                phone=user_data.phone
-            )
+        """注册新用户（在可能的首个用户场景使用分布式锁避免并发竞态）。"""
+        needs_lock = await self._is_first_user_candidate()
 
-            events = domain_service.get_domain_events()
-            for _event in events:
-                # 可以将事件发布到消息队列、指标系统等
-                pass
+        cache = None
+        if needs_lock and settings.REDIS_URL:
+            try:
+                from infrastructure.external.cache import get_redis_client
+                cache = await get_redis_client()
+            except Exception:
+                cache = None
 
-            return self._to_response_dto(user)
+        async def _do_register() -> UserResponseDTO:
+            async with self._uow_factory() as uow:
+                domain_service = UserDomainService(uow.user_repository)
+                user = await domain_service.register_user(
+                    username=user_data.username,
+                    email=user_data.email,
+                    password=user_data.password,
+                    full_name=user_data.full_name,
+                    phone=user_data.phone
+                )
+
+                events = domain_service.get_domain_events()
+                for _event in events:
+                    # 可以将事件发布到消息队列、指标系统等
+                    pass
+
+                return self._to_response_dto(user)
+
+        # 如判断可能是首个用户且可用缓存锁，则在锁内再次执行（锁内将再次判断）
+        if cache is not None:
+            async with cache.lock(
+                "first_superuser_init",
+                timeout=settings.FIRST_SUPERUSER_LOCK_TIMEOUT,
+                blocking_timeout=settings.FIRST_SUPERUSER_LOCK_BLOCKING_TIMEOUT,
+            ):
+                # 锁内再确认一次，确保只有一个请求能看到 total==0
+                if await self._is_first_user_candidate():
+                    return await _do_register()
+                # 如果不再是首个用户，直接按常规注册
+                return await _do_register()
+
+        # 无锁情况下按常规注册（存在极小概率并发条件竞争，仅作为回退路径）
+        return await _do_register()
     
     async def login(self, login_data: LoginDTO) -> TokenDTO:
         """用户登录"""
@@ -48,9 +83,6 @@ class UserApplicationService:
                 username=login_data.username,
                 password=login_data.password
             )
-
-            if not user:
-                raise ValueError("用户名或密码错误")
 
             access_token = self._create_access_token(user)
             refresh_token = self._create_refresh_token(user)
@@ -64,26 +96,27 @@ class UserApplicationService:
     
     async def get_user(self, user_id: int) -> UserResponseDTO:
         """获取用户信息"""
-        async with self._uow_factory() as uow:
+        async with self._uow_factory(readonly=True) as uow:
             user = await uow.user_repository.get_by_id(user_id)
             if not user:
-                raise ValueError("用户不存在")
+                raise UserNotFoundException(str(user_id))
             return self._to_response_dto(user)
     
     async def get_user_by_username(self, username: str) -> UserResponseDTO:
         """根据用户名获取用户"""
-        async with self._uow_factory() as uow:
+        async with self._uow_factory(readonly=True) as uow:
             user = await uow.user_repository.get_by_username(username)
             if not user:
-                raise ValueError("用户不存在")
+                raise UserNotFoundException(username)
             return self._to_response_dto(user)
     
     async def list_users(self, skip: int = 0, limit: int = 100,
-                         is_active: Optional[bool] = None) -> List[UserResponseDTO]:
-        """获取用户列表"""
-        async with self._uow_factory() as uow:
+                         is_active: Optional[bool] = None) -> Tuple[List[UserResponseDTO], int]:
+        """获取用户列表（带总数）"""
+        async with self._uow_factory(readonly=True) as uow:
             users = await uow.user_repository.get_all(skip, limit, is_active)
-            return [self._to_response_dto(user) for user in users]
+            total = await uow.user_repository.count_all(is_active)
+            return [self._to_response_dto(user) for user in users], int(total)
     
     async def update_user(self, user_id: int, 
                          update_data: UserUpdateDTO) -> UserResponseDTO:
@@ -91,7 +124,7 @@ class UserApplicationService:
         async with self._uow_factory() as uow:
             user = await uow.user_repository.get_by_id(user_id)
             if not user:
-                raise ValueError("用户不存在")
+                raise UserNotFoundException(str(user_id))
 
             if update_data.full_name is not None:
                 user.full_name = update_data.full_name
@@ -180,6 +213,42 @@ class UserApplicationService:
             "type": "refresh"
         }
         return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+    async def refresh_token(self, refresh_token: str) -> TokenDTO:
+        """使用刷新令牌换取新的访问令牌"""
+        try:
+            payload = jwt.decode(
+                refresh_token,
+                settings.SECRET_KEY,
+                algorithms=[settings.ALGORITHM]
+            )
+        except jwt.ExpiredSignatureError:
+            raise TokenExpiredException()
+        except jwt.PyJWTError:
+            raise UnauthorizedException("无效的刷新令牌")
+
+        if payload.get("type") != "refresh":
+            raise UnauthorizedException("令牌类型错误")
+
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise UnauthorizedException("无效的刷新令牌")
+
+        async with self._uow_factory() as uow:
+            user = await uow.user_repository.get_by_id(int(user_id))
+            if not user:
+                raise UserNotFoundException(str(user_id))
+            if not user.is_active:
+                raise UserInactiveException()
+
+            access_token = self._create_access_token(user)
+            new_refresh_token = self._create_refresh_token(user)
+            return TokenDTO(
+                access_token=access_token,
+                refresh_token=new_refresh_token,
+                token_type="bearer",
+                expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
     
     def _to_response_dto(self, user: User) -> UserResponseDTO:
         """将领域实体转换为响应DTO"""

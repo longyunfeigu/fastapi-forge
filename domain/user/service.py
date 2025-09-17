@@ -9,6 +9,15 @@ import secrets
 from .entity import User
 from .repository import UserRepository
 from .events import UserCreated, UserActivated, UserDeactivated, PasswordChanged
+from domain.common.exceptions import (
+    UsernameAlreadyExistsException,
+    UserAlreadyExistsException,
+    PasswordErrorException,
+    UserInactiveException,
+    UserNotFoundException,
+    NewPasswordSameAsOldException,
+    DomainValidationException,
+)
 
 
 class PasswordService:
@@ -42,13 +51,13 @@ class PasswordService:
     def validate_password_strength(password: str) -> None:
         """业务规则：密码强度验证"""
         if len(password) < 8:
-            raise ValueError("密码长度至少8位")
+            raise DomainValidationException("密码长度至少8位", field="password")
         if not any(c.isupper() for c in password):
-            raise ValueError("密码必须包含至少一个大写字母")
+            raise DomainValidationException("密码必须包含至少一个大写字母", field="password")
         if not any(c.islower() for c in password):
-            raise ValueError("密码必须包含至少一个小写字母")
+            raise DomainValidationException("密码必须包含至少一个小写字母", field="password")
         if not any(c.isdigit() for c in password):
-            raise ValueError("密码必须包含至少一个数字")
+            raise DomainValidationException("密码必须包含至少一个数字", field="password")
 
 
 class UserDomainService:
@@ -71,11 +80,11 @@ class UserDomainService:
         
         # 业务规则2：检查用户名是否已存在
         if await self.user_repository.exists_by_username(username):
-            raise ValueError(f"用户名 {username} 已被使用")
+            raise UsernameAlreadyExistsException(username)
         
         # 业务规则3：检查邮箱是否已存在
         if await self.user_repository.exists_by_email(email):
-            raise ValueError(f"邮箱 {email} 已被注册")
+            raise UserAlreadyExistsException(email)
         
         # 业务规则4：创建用户实体
         hashed_password = self.password_service.hash_password(password)
@@ -113,17 +122,17 @@ class UserDomainService:
         if not user:
             # 也可以通过邮箱登录
             user = await self.user_repository.get_by_email(username)
-        
         if not user:
-            return None
+            # 为避免用户枚举，返回统一的认证失败
+            raise PasswordErrorException()
         
         # 验证密码
         if not self.password_service.verify_password(password, user.hashed_password):
-            return None
+            raise PasswordErrorException()
         
         # 业务规则：检查用户是否激活
         if not user.is_active:
-            raise ValueError("用户账户已被停用")
+            raise UserInactiveException()
         
         # 记录登录时间
         user.record_login()
@@ -138,18 +147,18 @@ class UserDomainService:
         # 获取用户
         user = await self.user_repository.get_by_id(user_id)
         if not user:
-            raise ValueError("用户不存在")
+            raise UserNotFoundException(str(user_id))
         
         # 验证旧密码
         if not self.password_service.verify_password(old_password, user.hashed_password):
-            raise ValueError("原密码错误")
+            raise PasswordErrorException()
         
         # 验证新密码强度
         self.password_service.validate_password_strength(new_password)
         
         # 业务规则：新密码不能与旧密码相同
         if old_password == new_password:
-            raise ValueError("新密码不能与原密码相同")
+            raise NewPasswordSameAsOldException()
         
         # 修改密码
         new_hash = self.password_service.hash_password(new_password)
@@ -167,7 +176,7 @@ class UserDomainService:
         """激活用户"""
         user = await self.user_repository.get_by_id(user_id)
         if not user:
-            raise ValueError("用户不存在")
+            raise UserNotFoundException(str(user_id))
         
         user.activate()
         updated_user = await self.user_repository.update(user)
@@ -181,7 +190,7 @@ class UserDomainService:
         """停用用户"""
         user = await self.user_repository.get_by_id(user_id)
         if not user:
-            raise ValueError("用户不存在")
+            raise UserNotFoundException(str(user_id))
         
         user.deactivate()
         updated_user = await self.user_repository.update(user)

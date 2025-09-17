@@ -9,6 +9,15 @@ from sqlalchemy.exc import IntegrityError
 from domain.user.entity import User
 from domain.user.repository import UserRepository
 from infrastructure.models.user import UserModel
+from core.logging_config import get_logger
+from domain.common.exceptions import (
+    UsernameAlreadyExistsException,
+    UserAlreadyExistsException,
+    UserNotFoundException,
+)
+
+
+logger = get_logger(__name__)
 
 
 class SQLAlchemyUserRepository(UserRepository):
@@ -59,10 +68,13 @@ class SQLAlchemyUserRepository(UserRepository):
             return self._to_entity(db_user)
         except IntegrityError as e:
             await self.session.rollback()
-            if "username" in str(e):
-                raise ValueError(f"用户名 {user.username} 已存在")
-            elif "email" in str(e):
-                raise ValueError(f"邮箱 {user.email} 已存在")
+            msg = str(e).lower()
+            if "username" in msg:
+                logger.warning("create_user_conflict", field="username", username=user.username)
+                raise UsernameAlreadyExistsException(user.username)
+            if "email" in msg:
+                logger.warning("create_user_conflict", field="email", email=user.email)
+                raise UserAlreadyExistsException(user.email)
             raise
     
     async def get_by_id(self, user_id: int) -> Optional[User]:
@@ -96,7 +108,8 @@ class SQLAlchemyUserRepository(UserRepository):
         
         if is_active is not None:
             query = query.where(UserModel.is_active == is_active)
-        
+        # 默认按创建时间倒序，再按ID倒序，确保分页稳定
+        query = query.order_by(UserModel.created_at.desc(), UserModel.id.desc())
         query = query.offset(skip).limit(limit)
         result = await self.session.execute(query)
         db_users = result.scalars().all()
@@ -111,7 +124,7 @@ class SQLAlchemyUserRepository(UserRepository):
         db_user = result.scalar_one_or_none()
         
         if not db_user:
-            raise ValueError(f"用户ID {user.id} 不存在")
+            raise UserNotFoundException(str(user.id))
         
         # 更新字段
         db_user.username = user.username
@@ -124,7 +137,18 @@ class SQLAlchemyUserRepository(UserRepository):
         db_user.updated_at = user.updated_at
         db_user.last_login = user.last_login
         
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            await self.session.rollback()
+            msg = str(e).lower()
+            if "username" in msg:
+                logger.warning("update_user_conflict", field="username", user_id=user.id, username=user.username)
+                raise UsernameAlreadyExistsException(user.username)
+            if "email" in msg:
+                logger.warning("update_user_conflict", field="email", user_id=user.id, email=user.email)
+                raise UserAlreadyExistsException(user.email)
+            raise
         await self.session.refresh(db_user)
         return self._to_entity(db_user)
     
@@ -138,7 +162,7 @@ class SQLAlchemyUserRepository(UserRepository):
         if not db_user:
             return False
         
-        await self.session.delete(db_user)
+        self.session.delete(db_user)
         await self.session.flush()
         return True
     

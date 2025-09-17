@@ -3,7 +3,7 @@
 记录所有HTTP请求和响应，包括耗时统计
 """
 import time
-from typing import Callable
+from typing import Callable, Any, Dict
 import json
 
 from fastapi import Request, Response
@@ -11,7 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from core.logging_config import get_logger
-from api.middleware.request_id import set_user_id
+from core.config import settings
 
 
 logger = get_logger(__name__)
@@ -32,7 +32,14 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     SKIP_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
     
     # 敏感字段，日志中需要脱敏
-    SENSITIVE_FIELDS = {"password", "token", "secret", "api_key", "access_token", "refresh_token"}
+    SENSITIVE_FIELDS = {"password", "token", "secret", "api_key", "access_token", "refresh_token", "old_password", "new_password"}
+
+    def __init__(self, app: ASGIApp):
+        super().__init__(app)
+        # 从配置读取可调参数
+        self.enable_body_log_default: bool = settings.LOG_REQUEST_BODY_ENABLE_BY_DEFAULT
+        self.max_body_log_bytes: int = settings.LOG_REQUEST_BODY_MAX_BYTES
+        self.allow_multipart_body_log: bool = settings.LOG_REQUEST_BODY_ALLOW_MULTIPART
     
     async def dispatch(self, request: Request, call_next):
         # 检查是否需要跳过日志
@@ -44,7 +51,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         
         # 获取请求信息
         request_info = await self._get_request_info(request)
-        
+
         # 记录请求日志
         logger.info(
             "request_started",
@@ -104,11 +111,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         if hasattr(request, "path_params"):
             info["path_params"] = request.path_params
         
-        # 添加请求体（仅限POST/PUT/PATCH）
-        # 注意：暂时不读取body，因为会导致后续处理器无法读取
-        # TODO: 实现body的正确缓存和重放机制
-        if request.method in ["POST", "PUT", "PATCH"]:
-            info["has_body"] = True
+        # 添加请求体（按开关/限制/脱敏）
+        if request.method in ["POST", "PUT", "PATCH"] and self._should_log_body(request):
+            body_snippet = await self._extract_and_sanitize_body(request)
+            if body_snippet is not None:
+                info["body"] = body_snippet
+            else:
+                info["has_body"] = True
         
         # 添加用户代理
         user_agent = request.headers.get("User-Agent")
@@ -121,6 +130,66 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             info["referer"] = referer
         
         return info
+
+    def _should_log_body(self, request: Request) -> bool:
+        # 默认按配置与 DEBUG 开关，可通过请求头禁用/启用
+        # X-Log-Body: true/false
+        header = (request.headers.get("X-Log-Body") or "").lower()
+        if header in {"true", "1", "yes"}:
+            return True
+        if header in {"false", "0", "no"}:
+            return False
+        # 按环境默认
+        return bool(self.enable_body_log_default and settings.DEBUG)
+
+    async def _extract_and_sanitize_body(self, request: Request) -> Any:
+        try:
+            body = await request.body()
+        except Exception:
+            return None
+
+        if not body:
+            return None
+
+        # 限制大小
+        snippet = body[: self.max_body_log_bytes]
+
+        # 内容类型处理
+        content_type = request.headers.get("content-type", "").lower()
+        parsed: Any = None
+        if "application/json" in content_type:
+            try:
+                parsed = json.loads(snippet.decode("utf-8", errors="ignore"))
+            except Exception:
+                parsed = snippet.decode("utf-8", errors="ignore")
+        elif "application/x-www-form-urlencoded" in content_type:
+            try:
+                from urllib.parse import parse_qs
+                parsed = {k: v if len(v) > 1 else v[0] for k, v in parse_qs(snippet.decode("utf-8", errors="ignore")).items()}
+            except Exception:
+                parsed = snippet.decode("utf-8", errors="ignore")
+        elif "multipart/form-data" in content_type:
+            # 避免解析文件；按配置决定是否记录提示
+            if not self.allow_multipart_body_log:
+                return None
+            return {"multipart": True}
+        else:
+            # 其它类型按文本截断
+            parsed = snippet.decode("utf-8", errors="ignore")
+
+        return self._sanitize_data(parsed)
+
+    def _sanitize_data(self, data: Any) -> Any:
+        try:
+            if isinstance(data, dict):
+                return {k: ("***" if k.lower() in self.SENSITIVE_FIELDS else self._sanitize_data(v)) for k, v in data.items()}
+            if isinstance(data, list):
+                return [self._sanitize_data(v) for v in data]
+            if isinstance(data, tuple):
+                return tuple(self._sanitize_data(v) for v in data)
+            return data
+        except Exception:
+            return data
     
     def _log_response(self, response: Response, duration: float, request_info: dict):
         """
@@ -150,31 +219,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             # 服务器错误
             logger.error("request_server_error", **log_data)
     
-    def _sanitize_data(self, data: any) -> any:
-        """
-        脱敏处理敏感数据
-        
-        Args:
-            data: 原始数据
-            
-        Returns:
-            脱敏后的数据
-        """
-        if isinstance(data, dict):
-            # 处理字典
-            sanitized = {}
-            for key, value in data.items():
-                if key.lower() in self.SENSITIVE_FIELDS:
-                    sanitized[key] = "***REDACTED***"
-                else:
-                    sanitized[key] = self._sanitize_data(value)
-            return sanitized
-        elif isinstance(data, list):
-            # 处理列表
-            return [self._sanitize_data(item) for item in data]
-        else:
-            # 其他类型直接返回
-            return data
+    # _sanitize_data 未被使用，已删除以保持简洁
 
 
 class AccessLogMiddleware:

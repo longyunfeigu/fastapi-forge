@@ -12,8 +12,9 @@ class AbstractUnitOfWork(ABC):
 
     user_repository: UserRepository
 
-    def __init__(self) -> None:
+    def __init__(self, *, readonly: bool = False) -> None:
         self._committed = False
+        self._readonly = readonly
 
     async def __aenter__(self) -> "AbstractUnitOfWork":
         return self
@@ -21,13 +22,15 @@ class AbstractUnitOfWork(ABC):
     async def __aexit__(self, exc_type, exc, tb) -> None:
         if exc:
             await self.rollback()
-        elif not self._committed:
-            await self.commit()
+        else:
+            # 只在非只读且未显式提交时自动提交
+            if not self._readonly and not self._committed:
+                await self.commit()
 
     @abstractmethod
     async def commit(self) -> None:
         """提交事务"""
-        self._committed = True
+        ...
 
     @abstractmethod
     async def rollback(self) -> None:

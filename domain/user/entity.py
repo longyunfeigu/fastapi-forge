@@ -7,6 +7,13 @@ from dataclasses import dataclass
 import re
 import hashlib
 
+from domain.common.exceptions import (
+    DomainValidationException,
+    SuperuserDeactivationForbiddenException,
+    UserAlreadyActiveException,
+    UserAlreadyInactiveException,
+)
+
 
 @dataclass
 class User:
@@ -35,37 +42,41 @@ class User:
         """业务规则：邮箱格式验证"""
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_pattern, self.email):
-            raise ValueError(f"无效的邮箱格式: {self.email}")
+            raise DomainValidationException(
+                f"无效的邮箱格式: {self.email}", field="email"
+            )
     
     def validate_username(self) -> None:
         """业务规则：用户名验证"""
         if len(self.username) < 3:
-            raise ValueError("用户名至少需要3个字符")
+            raise DomainValidationException("用户名至少需要3个字符", field="username")
         if len(self.username) > 20:
-            raise ValueError("用户名不能超过20个字符")
+            raise DomainValidationException("用户名不能超过20个字符", field="username")
         if not re.match(r'^[a-zA-Z0-9_]+$', self.username):
-            raise ValueError("用户名只能包含字母、数字和下划线")
+            raise DomainValidationException("用户名只能包含字母、数字和下划线", field="username")
     
     def validate_phone(self) -> None:
         """业务规则：手机号验证（中国手机号）"""
         if self.phone:
             phone_pattern = r'^1[3-9]\d{9}$'
             if not re.match(phone_pattern, self.phone):
-                raise ValueError(f"无效的手机号格式: {self.phone}")
+                raise DomainValidationException(
+                    f"无效的手机号格式: {self.phone}", field="phone"
+                )
     
     def activate(self) -> None:
         """业务规则：激活用户"""
         if self.is_active:
-            raise ValueError("用户已经是激活状态")
+            raise UserAlreadyActiveException()
         self.is_active = True
         self.updated_at = datetime.now(timezone.utc)
     
     def deactivate(self) -> None:
         """业务规则：停用用户"""
         if not self.is_active:
-            raise ValueError("用户已经是停用状态")
+            raise UserAlreadyInactiveException()
         if self.is_superuser:
-            raise ValueError("不能停用超级管理员账户")
+            raise SuperuserDeactivationForbiddenException()
         self.is_active = False
         self.updated_at = datetime.now(timezone.utc)
     
@@ -82,7 +93,7 @@ class User:
     def change_password(self, new_password_hash: str) -> None:
         """业务规则：修改密码"""
         if not new_password_hash:
-            raise ValueError("密码不能为空")
+            raise DomainValidationException("密码不能为空", field="new_password")
         self.hashed_password = new_password_hash
         self.updated_at = datetime.now(timezone.utc)
     
@@ -93,7 +104,7 @@ class User:
     def grant_superuser(self) -> None:
         """业务规则：授予超级管理员权限"""
         if not self.is_active:
-            raise ValueError("不能给停用的用户授予超级管理员权限")
+            raise DomainValidationException("不能给停用的用户授予超级管理员权限")
         self.is_superuser = True
         self.updated_at = datetime.now(timezone.utc)
     

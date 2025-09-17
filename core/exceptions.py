@@ -1,5 +1,5 @@
 """
-自定义异常类和全局异常处理器
+自定义异常映射与全局异常处理器
 """
 from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
@@ -9,53 +9,12 @@ from fastapi.responses import JSONResponse
 import traceback
 import uuid
 from datetime import datetime
+from starlette import status as http_status
 
-from .response import error_response, BusinessCode
-
-
-class BusinessException(Exception):
-    """业务异常基类"""
-    
-    def __init__(
-        self,
-        code: int,
-        message: str,
-        error_type: str = "BusinessError",
-        details: Optional[dict] = None,
-        field: Optional[str] = None
-    ):
-        self.code = code
-        self.message = message
-        self.error_type = error_type
-        self.details = details
-        self.field = field
-        super().__init__(self.message)
-
-
-class UserNotFoundException(BusinessException):
-    """用户不存在异常"""
-    
-    def __init__(self, user_id: Optional[str] = None):
-        details = {"user_id": user_id} if user_id else None
-        super().__init__(
-            code=BusinessCode.USER_NOT_FOUND,
-            message="用户不存在",
-            error_type="UserNotFound",
-            details=details
-        )
-
-
-class UserAlreadyExistsException(BusinessException):
-    """用户已存在异常"""
-    
-    def __init__(self, email: str):
-        super().__init__(
-            code=BusinessCode.USER_ALREADY_EXISTS,
-            message=f"邮箱 {email} 已被注册",
-            error_type="UserAlreadyExists",
-            details={"email": email},
-            field="email"
-        )
+from .response import error_response
+from shared.codes import BusinessCode
+from core.logging_config import get_logger
+from domain.common.exceptions import BusinessException
 
 
 class UnauthorizedException(BusinessException):
@@ -80,17 +39,6 @@ class TokenExpiredException(BusinessException):
         )
 
 
-class PasswordErrorException(BusinessException):
-    """密码错误异常"""
-    
-    def __init__(self):
-        super().__init__(
-            code=BusinessCode.PASSWORD_ERROR,
-            message="用户名或密码错误",
-            error_type="PasswordError"
-        )
-
-
 class RateLimitException(BusinessException):
     """限流异常"""
     
@@ -112,10 +60,47 @@ def register_exception_handlers(app: FastAPI):
         app: FastAPI应用实例
     """
     
+    # logger
+    logger = get_logger(__name__)
+
+    def _business_code_to_http_status(code: int) -> int:
+        """根据业务码映射HTTP状态码（默认400）。"""
+        mapping = {
+            BusinessCode.PARAM_ERROR: http_status.HTTP_400_BAD_REQUEST,
+            BusinessCode.PARAM_MISSING: http_status.HTTP_400_BAD_REQUEST,
+            BusinessCode.PARAM_TYPE_ERROR: http_status.HTTP_400_BAD_REQUEST,
+            BusinessCode.PARAM_VALIDATION_ERROR: http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+
+            BusinessCode.BUSINESS_ERROR: http_status.HTTP_400_BAD_REQUEST,
+            BusinessCode.USER_NOT_FOUND: http_status.HTTP_404_NOT_FOUND,
+            BusinessCode.NOT_FOUND: http_status.HTTP_404_NOT_FOUND,
+            BusinessCode.USER_ALREADY_EXISTS: http_status.HTTP_409_CONFLICT,
+            BusinessCode.PASSWORD_ERROR: http_status.HTTP_401_UNAUTHORIZED,
+            BusinessCode.TOKEN_INVALID: http_status.HTTP_401_UNAUTHORIZED,
+            BusinessCode.TOKEN_EXPIRED: http_status.HTTP_401_UNAUTHORIZED,
+
+            BusinessCode.PERMISSION_ERROR: http_status.HTTP_403_FORBIDDEN,
+            BusinessCode.UNAUTHORIZED: http_status.HTTP_401_UNAUTHORIZED,
+            BusinessCode.FORBIDDEN: http_status.HTTP_403_FORBIDDEN,
+
+            BusinessCode.SYSTEM_ERROR: http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            BusinessCode.DATABASE_ERROR: http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            BusinessCode.NETWORK_ERROR: http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            BusinessCode.SERVICE_UNAVAILABLE: http_status.HTTP_503_SERVICE_UNAVAILABLE,
+
+            BusinessCode.RATE_LIMIT_ERROR: http_status.HTTP_429_TOO_MANY_REQUESTS,
+            BusinessCode.TOO_MANY_REQUESTS: http_status.HTTP_429_TOO_MANY_REQUESTS,
+        }
+        try:
+            bc = BusinessCode(code)
+            return mapping.get(bc, http_status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return http_status.HTTP_400_BAD_REQUEST
+
     @app.exception_handler(BusinessException)
     async def business_exception_handler(request: Request, exc: BusinessException):
         """处理业务异常"""
-        request_id = str(uuid.uuid4())
+        request_id = getattr(getattr(request, "state", object()), "request_id", None) or str(uuid.uuid4())
         response = error_response(
             code=exc.code,
             message=exc.message,
@@ -124,15 +109,15 @@ def register_exception_handlers(app: FastAPI):
             field=exc.field,
             request_id=request_id
         )
-        return JSONResponse(
-            status_code=200,  # 业务异常统一返回200，通过code字段区分
-            content=response.model_dump(mode='json')
-        )
+        status_code = _business_code_to_http_status(exc.code)
+        # 对于401可选地返回WWW-Authenticate，但仅对需要的场景添加
+        headers = {"WWW-Authenticate": "Bearer"} if status_code == http_status.HTTP_401_UNAUTHORIZED else None
+        return JSONResponse(status_code=status_code, content=response.model_dump(mode='json'), headers=headers)
     
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         """处理参数验证异常"""
-        request_id = str(uuid.uuid4())
+        request_id = getattr(getattr(request, "state", object()), "request_id", None) or str(uuid.uuid4())
         errors = exc.errors()
         
         # 提取第一个错误的详细信息
@@ -148,25 +133,24 @@ def register_exception_handlers(app: FastAPI):
             request_id=request_id
         )
         return JSONResponse(
-            status_code=200,
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
             content=response.model_dump(mode='json')
         )
     
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         """处理HTTP异常"""
-        request_id = str(uuid.uuid4())
+        request_id = getattr(getattr(request, "state", object()), "request_id", None) or str(uuid.uuid4())
         
         # 映射HTTP状态码到业务码
         code_mapping = {
             401: BusinessCode.UNAUTHORIZED,
             403: BusinessCode.FORBIDDEN,
-            404: BusinessCode.USER_NOT_FOUND,
+            404: BusinessCode.NOT_FOUND,
             429: BusinessCode.TOO_MANY_REQUESTS,
             500: BusinessCode.SYSTEM_ERROR,
             503: BusinessCode.SERVICE_UNAVAILABLE
         }
-        
         code = code_mapping.get(exc.status_code, BusinessCode.SYSTEM_ERROR)
         
         response = error_response(
@@ -177,14 +161,15 @@ def register_exception_handlers(app: FastAPI):
             request_id=request_id
         )
         return JSONResponse(
-            status_code=200,
-            content=response.model_dump(mode='json')
+            status_code=exc.status_code,
+            content=response.model_dump(mode='json'),
+            headers=getattr(exc, "headers", None)
         )
     
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         """处理所有未捕获的异常"""
-        request_id = str(uuid.uuid4())
+        request_id = getattr(getattr(request, "state", object()), "request_id", None) or str(uuid.uuid4())
         
         # 在开发环境可以返回详细错误信息
         details = None
@@ -202,12 +187,15 @@ def register_exception_handlers(app: FastAPI):
             request_id=request_id
         )
         
-        # 记录日志
-        print(f"[{datetime.utcnow()}] Request ID: {request_id}")
-        print(f"Error: {exc}")
-        print(traceback.format_exc())
+        # 记录日志（使用结构化日志）
+        logger.error(
+            "unhandled_exception",
+            request_id=request_id,
+            error=str(exc),
+            exc_info=True,
+        )
         
         return JSONResponse(
-            status_code=200,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=response.model_dump(mode='json')
         )
