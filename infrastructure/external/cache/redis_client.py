@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from enum import Enum
+import random
 from typing import (
     Any, Dict, List, Optional, Set, Tuple, TypeVar, Union,
     Generic, Callable, AsyncGenerator
@@ -865,31 +866,77 @@ class RedisClient(CacheInterface):
         key: str,
         timeout: int = 10,
         blocking_timeout: int = 5,
-        thread_local: bool = True
+        thread_local: bool = True,
+        *,
+        auto_renew: Optional[bool] = None,
+        renew_interval: Optional[float] = None,
+        jitter: Optional[float] = None,
     ):
         """
-        分布式锁上下文管理器
-        
+        分布式锁上下文管理器，支持可选自动续租。
+
         Args:
             key: 锁的键名
             timeout: 锁的超时时间（秒）
             blocking_timeout: 获取锁的等待时间（秒）
             thread_local: 是否使用线程本地存储
+            auto_renew: 是否自动续租；None 则使用配置默认
+            renew_interval: 续租间隔（秒）；None 则按比例计算（默认 60% * timeout）
+            jitter: 抖动比例（0~1）；None 使用配置默认（默认 0.1）
         """
         lock_key = f"lock:{self._format_key(key)}"
         lock = self._client.lock(
             lock_key,
             timeout=timeout,
             blocking_timeout=blocking_timeout,
-            thread_local=thread_local
+            thread_local=thread_local,
         )
-        
+
+        enable_auto_renew = settings.REDIS_LOCK_AUTO_RENEW_DEFAULT if auto_renew is None else auto_renew
+        ratio = getattr(settings, "REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO", 0.6)
+        jitter_ratio = getattr(settings, "REDIS_LOCK_AUTO_RENEW_JITTER_RATIO", 0.1) if jitter is None else jitter
+
+        cancel = asyncio.Event()
+
+        async def _auto_extend_task():
+            # 无 timeout 或非正值时不进行续租
+            if not timeout or timeout <= 0:
+                return
+            base_interval = renew_interval if renew_interval is not None else max(1.0, timeout * float(ratio))
+            try:
+                while not cancel.is_set():
+                    # 计算带抖动的间隔，避免续租尖峰
+                    j = 1.0 + random.uniform(-float(jitter_ratio), float(jitter_ratio)) if jitter_ratio else 1.0
+                    interval = max(0.5, base_interval * j)
+                    try:
+                        await asyncio.wait_for(cancel.wait(), timeout=interval)
+                        break  # cancel set
+                    except asyncio.TimeoutError:
+                        pass
+                    try:
+                        await lock.extend(timeout)
+                    except Exception as e:
+                        logger.warning(f"锁续租失败 [{lock_key}]: {e}")
+            except asyncio.CancelledError:
+                pass
+
+        task: Optional[asyncio.Task] = None
+
         try:
             acquired = await lock.acquire()
             if not acquired:
                 raise TimeoutError(f"获取锁失败: {lock_key}")
+            if enable_auto_renew:
+                task = asyncio.create_task(_auto_extend_task())
             yield lock
         finally:
+            cancel.set()
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except Exception:
+                    pass
             try:
                 await lock.release()
             except Exception as e:

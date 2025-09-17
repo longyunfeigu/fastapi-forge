@@ -185,6 +185,24 @@ FIRST_SUPERUSER_LOCK_BLOCKING_TIMEOUT=10
 
 - 若生产环境对“首个超管”有更严格要求，建议通过初始化脚本/迁移任务显式创建超管，避免运行时判定。
 
+自动续租（可选）
+- 为避免长耗时任务持锁过期，可启用自动续租：
+
+```
+# 是否默认启用 Redis 锁自动续租（可在调用处覆盖 auto_renew 参数）
+REDIS_LOCK_AUTO_RENEW_DEFAULT=false
+
+# 自动续租的间隔比例（相对于 TTL），建议 0.4~0.6
+REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO=0.6
+
+# 续租间隔的抖动比例（避免续租尖峰），建议 0.05~0.2
+REDIS_LOCK_AUTO_RENEW_JITTER_RATIO=0.1
+```
+
+使用说明
+- 代码中可通过 `cache.lock(key, timeout=10, auto_renew=True)` 开启自动续租；若未提供 `auto_renew`，默认按上述配置决定。
+- 续租间隔默认按 `interval = ratio * timeout` 计算，并加入抖动；建议续租间隔小于 TTL 的一半，以预留抖动与重试空间。
+
 ### 测试
 ```bash
 pytest tests/

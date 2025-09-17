@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # 首个超管分布式锁配置
     FIRST_SUPERUSER_LOCK_TIMEOUT: int = Field(default=10, env="FIRST_SUPERUSER_LOCK_TIMEOUT")
     FIRST_SUPERUSER_LOCK_BLOCKING_TIMEOUT: int = Field(default=10, env="FIRST_SUPERUSER_LOCK_BLOCKING_TIMEOUT")
+
+    # Redis 锁自动续租配置（全局默认值）
+    REDIS_LOCK_AUTO_RENEW_DEFAULT: bool = Field(default=False, env="REDIS_LOCK_AUTO_RENEW_DEFAULT")
+    REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO: float = Field(default=0.6, env="REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO")
+    REDIS_LOCK_AUTO_RENEW_JITTER_RATIO: float = Field(default=0.1, env="REDIS_LOCK_AUTO_RENEW_JITTER_RATIO")
     
     # pydantic-settings v2 configuration
     model_config = SettingsConfigDict(
