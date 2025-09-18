@@ -80,9 +80,21 @@ class OSSProvider(AdvancedStorageProvider):
                 content_type=content_type
             )
             
-            # Add public URL if available
+            # Add public URL if available; otherwise attach a presigned URL
             if self.config.public_base_url:
                 upload_result.url = f"{self.config.public_base_url}/{key}"
+            else:
+                # Generate a presigned GET URL (default 1 hour)
+                try:
+                    presigned = await self.generate_presigned_url(
+                        key=key,
+                        expires_in=3600,
+                        method="GET",
+                    )
+                    upload_result.url = presigned.url
+                except Exception:
+                    # If presigning fails, proceed without URL; error handled upstream
+                    pass
             
             logger.info(f"Uploaded to OSS", key=key, size=len(file))
             return upload_result

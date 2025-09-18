@@ -92,11 +92,24 @@ class S3Provider(AdvancedStorageProvider):
                 content_type=content_type
             )
             
-            # Add public URL if available
+            # Add public URL if available; otherwise attach a presigned URL
             if self.config.public_base_url:
                 result.url = f"{self.config.public_base_url}/{key}"
             elif self.config.s3_acl == "public-read":
+                # Public bucket: static URL is sufficient
                 result.url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+            else:
+                # Private bucket: generate a presigned GET URL (default 1 hour)
+                try:
+                    presigned = await self.generate_presigned_url(
+                        key=key,
+                        expires_in=3600,
+                        method="GET",
+                    )
+                    result.url = presigned.url
+                except Exception:
+                    # If presigning fails, proceed without URL; error handled upstream
+                    pass
             
             logger.info(f"Uploaded to S3", key=key, size=len(file))
             return result
