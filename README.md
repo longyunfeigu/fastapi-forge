@@ -33,6 +33,12 @@ fastapi-ddd-user/
 └── main.py             # 应用入口
 ```
 
+### 消息系统（Kafka）
+- 代码位置：`infrastructure/external/messaging`
+- 提供：统一发布/消费接口、JSON 序列化、中间件（日志/指标/追踪）、分层重试（5s/1m/10m）+ DLQ。
+- Provider：`confluent-kafka`（默认）与 `aiokafka`（异步适配）。
+- 文档与示例：见 `docs/messaging.md` 与 `examples/messaging_demo.py`。
+
 ## 🚀 快速开始
 
 ### 1. 安装依赖
@@ -60,6 +66,17 @@ docker-compose up -d
 ```bash
 # 确保PostgreSQL已运行
 python main.py
+```
+
+示例（消息系统）
+```bash
+# 生产消息
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+python examples/messaging_demo.py produce --topic demo.topic.v1 --count 3 --interval 0.2
+
+# 消费消息（订阅主 + 重试主题）
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+python examples/messaging_demo.py consume --topic demo.topic.v1 --group demo-group
 ```
 
 ## 📚 API文档
