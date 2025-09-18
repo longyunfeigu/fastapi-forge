@@ -3,7 +3,7 @@
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_serializer, ConfigDict
 from shared.codes import BusinessCode
-from typing import Optional
+from typing import Optional, Any, Literal
 from datetime import datetime, timezone
 from core.config import settings
 
@@ -136,3 +136,111 @@ class ErrorDTO(DTOBase):
     error: str
     code: int
     detail: Optional[str] = None
+
+
+class FileAssetDTO(DTOBase):
+    """File asset detail DTO."""
+
+    id: int
+    owner_id: Optional[int]
+    storage_type: str
+    bucket: Optional[str]
+    region: Optional[str]
+    key: str
+    size: int
+    etag: Optional[str]
+    content_type: Optional[str]
+    original_filename: Optional[str]
+    kind: Optional[str]
+    is_public: bool
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    url: Optional[str]
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: Optional[datetime]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FileAssetSummaryDTO(DTOBase):
+    """Reduced file asset payload for lightweight responses."""
+
+    id: int
+    key: str
+    status: str
+    original_filename: Optional[str]
+    content_type: Optional[str]
+    etag: Optional[str]
+    size: int
+    url: Optional[str]
+
+
+class PresignUploadRequestDTO(DTOBase):
+    """Input payload for requesting a presigned upload."""
+
+    filename: str
+    mime_type: Optional[str] = Field(default=None, alias="mime_type")
+    size_bytes: int = Field(ge=0, alias="size_bytes")
+    kind: str = Field(default="uploads")
+    method: Literal["PUT", "POST"] = Field(default="PUT")
+    expires_in: int = Field(default=600, ge=60, le=3600)
+
+
+class CompleteUploadRequestDTO(DTOBase):
+    """Payload for confirming a presigned upload."""
+
+    id: Optional[int] = None
+    key: Optional[str] = None
+
+    @field_validator("id", "key")
+    def _strip_empty(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("key")
+    def _normalize_key(cls, value):
+        if value:
+            return value.lstrip("/")
+        return value
+
+    def ensure_identifier(self) -> None:
+        if self.id is None and not self.key:
+            raise ValueError("id 或 key 必须提供一个")
+
+
+class FileAccessURLRequestDTO(DTOBase):
+    """Payload for generating access URLs."""
+
+    expires_in: int = Field(default=600, ge=60, le=3600)
+    filename: Optional[str] = None
+
+
+class PresignUploadDetailDTO(DTOBase):
+    """Presigned request information returned to clients."""
+
+    url: str
+    method: str
+    headers: dict[str, str] = Field(default_factory=dict)
+    fields: dict[str, str] = Field(default_factory=dict)
+    expires_in: int
+
+
+class PresignUploadResponseDTO(DTOBase):
+    """Response payload for presigned upload preparation."""
+
+    file: FileAssetSummaryDTO
+    upload: PresignUploadDetailDTO
+
+
+class StorageUploadResponseDTO(DTOBase):
+    """Response payload after direct upload completes via API relay."""
+
+    key: str
+    etag: Optional[str]
+    size: int
+    content_type: Optional[str]
+    url: Optional[str]
+    file_id: int
+    file_status: str

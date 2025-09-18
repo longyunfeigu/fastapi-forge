@@ -1,58 +1,129 @@
-"""
-存储/文件上传 API 路由
-"""
-from typing import Optional
+"""存储/文件上传相关路由。"""
+from __future__ import annotations
+
 from os.path import splitext
+from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Depends, Query
-
-from api.dependencies import get_current_active_user
-from application.dto import UserResponseDTO
-from core.response import success_response, Response as ApiResponse
-from infrastructure.external.storage import (
-    get_storage,
-    StorageProvider,
-    key_builder,
-    guess_content_type,
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
 )
-from infrastructure.external.storage.models import UploadResult
+
+from api.dependencies import (
+    get_current_active_user,
+    get_file_asset_service,
+)
+from application.dto import (
+    UserResponseDTO,
+    PresignUploadRequestDTO,
+    CompleteUploadRequestDTO,
+    StorageUploadResponseDTO,
+    PresignUploadResponseDTO,
+    PresignUploadDetailDTO,
+)
+from application.file_asset_service import FileAssetApplicationService
+from core.response import (
+    Response as ApiResponse,
+    success_response,
+)
+ 
 
 
 router = APIRouter(
     prefix="/storage",
-    tags=["文件存储"]
+    tags=["文件存储"],
 )
+
+
+
+@router.post(
+    "/presign-upload",
+    summary="生成直传预签名",
+    response_model=ApiResponse[PresignUploadResponseDTO],
+)
+async def presign_upload(
+    payload: PresignUploadRequestDTO,
+    service: FileAssetApplicationService = Depends(get_file_asset_service),
+    current_user: UserResponseDTO = Depends(get_current_active_user),
+):
+    try:
+        file_summary, presigned = await service.presign_upload(
+            user_id=current_user.id,
+            filename=payload.filename,
+            mime_type=payload.mime_type,
+            size_bytes=payload.size_bytes,
+            kind=payload.kind,
+            method=payload.method or "PUT",
+            expires_in=payload.expires_in,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    response_data = PresignUploadResponseDTO(
+        file=file_summary,
+        upload=PresignUploadDetailDTO(
+            url=presigned.url,
+            method=presigned.method,
+            headers=presigned.headers,
+            fields=presigned.fields,
+            expires_in=presigned.expires_in,
+        ),
+    )
+    return success_response(data=response_data, message="预签名生成成功")
+
+
+@router.post(
+    "/complete",
+    summary="直传完成确认",
+    response_model=ApiResponse[dict],
+)
+async def confirm_presigned_upload(
+    payload: CompleteUploadRequestDTO,
+    service: FileAssetApplicationService = Depends(get_file_asset_service),
+    current_user: UserResponseDTO = Depends(get_current_active_user),
+):
+    try:
+        payload.ensure_identifier()
+    except ValueError as exc:  # pragma: no cover - defensive guard
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if payload.id is not None:
+        asset = await service.get_asset_raw(payload.id)
+    elif payload.key:
+        asset = await service.get_asset_by_key_raw(payload.key)
+    else:  # pragma: no cover - already guarded
+        raise HTTPException(status_code=400, detail="缺少文件标识")
+
+    if not current_user.is_superuser and asset.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该文件")
+
+    await service.confirm_direct_upload(asset_id=asset.id)
+
+    return success_response(data={"ok": True}, message="文件已激活")
 
 
 @router.post(
     "/upload",
-    summary="上传单个文件",
-    response_model=ApiResponse[UploadResult],
+    summary="中转上传单个文件",
+    response_model=ApiResponse[StorageUploadResponseDTO],
 )
 async def upload_file(
     file: UploadFile = File(..., description="要上传的文件"),
     kind: str = Query("uploads", description="业务分类（如 avatar、document 等）"),
-    storage: StorageProvider = Depends(get_storage),
+    service: FileAssetApplicationService = Depends(get_file_asset_service),
     current_user: UserResponseDTO = Depends(get_current_active_user),
 ):
-    """上传单个文件到配置的存储后端并返回上传结果。"""
-    # 解析扩展名与内容类型
-    _, ext = splitext(file.filename or "")
-    content_type = file.content_type or guess_content_type(file.filename or "")
-
-    # 生成存储 key：按日期/分类/用户ID 分层
-    key = key_builder(kind=kind, user_id=str(current_user.id), ext=ext)
-
-    # 读取文件并上传
+    """由应用服务器中转上传文件到对象存储（编排已下沉到 Application Service）。"""
     data = await file.read()
-    metadata = {"filename": file.filename or ""}
-    result = await storage.upload(data, key, metadata=metadata, content_type=content_type)
-
-    # 若后端未返回 URL，则尝试派生公共 URL
-    if not result.url:
-        url = storage.public_url(result.key)
-        if url:
-            result = result.model_copy(update={"url": url})
-
-    return success_response(data=result, message="文件上传成功")
-
+    resp = await service.relay_upload(
+        user_id=current_user.id,
+        file_bytes=data,
+        filename=file.filename or "upload.bin",
+        kind=kind,
+        content_type=file.content_type,
+    )
+    return success_response(data=resp, message="文件上传成功")

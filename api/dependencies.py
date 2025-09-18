@@ -6,8 +6,12 @@ from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorization
 from typing import Optional
 
 from application.user_service import UserApplicationService
+from application.file_asset_service import FileAssetApplicationService
+from application.ports.storage import StoragePort
 from application.dto import UserResponseDTO
 from infrastructure.unit_of_work import SQLAlchemyUnitOfWork
+from infrastructure.external.storage import get_storage
+from infrastructure.adapters.storage_port import StorageProviderPortAdapter
 
 # OAuth2 password bearer for Swagger UI
 oauth2_scheme = OAuth2PasswordBearer(
@@ -47,6 +51,15 @@ async def get_token(
 
 async def get_user_service() -> UserApplicationService:
     return UserApplicationService(uow_factory=SQLAlchemyUnitOfWork)
+
+
+async def get_storage_port(provider = Depends(get_storage)) -> StoragePort:
+    return StorageProviderPortAdapter(provider)
+
+
+async def get_file_asset_service(storage: StoragePort = Depends(get_storage_port)) -> FileAssetApplicationService:
+    # Inject storage port adapter (implements application port)
+    return FileAssetApplicationService(uow_factory=SQLAlchemyUnitOfWork, storage=storage)
 
 
 async def get_current_user(

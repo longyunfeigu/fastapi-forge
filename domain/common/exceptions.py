@@ -124,3 +124,29 @@ class UserAlreadyInactiveException(BusinessException):
             message="用户已经是停用状态",
             error_type="UserAlreadyInactive",
         )
+
+
+class FileAssetNotFoundException(BusinessException):
+    def __init__(self, asset_id: Optional[int] = None, *, key: Optional[str] = None):
+        details = {}
+        if asset_id is not None:
+            details["asset_id"] = asset_id
+        if key is not None:
+            details["key"] = key
+        super().__init__(
+            code=BusinessCode.NOT_FOUND,
+            message="文件资源不存在",
+            error_type="FileAssetNotFound",
+            details=details or None,
+        )
+
+
+class FileAssetAlreadyDeletedException(BusinessException):
+    def __init__(self, asset_id: Optional[int] = None):
+        details = {"asset_id": asset_id} if asset_id is not None else None
+        super().__init__(
+            code=BusinessCode.BUSINESS_ERROR,
+            message="文件已被删除",
+            error_type="FileAssetAlreadyDeleted",
+            details=details,
+        )

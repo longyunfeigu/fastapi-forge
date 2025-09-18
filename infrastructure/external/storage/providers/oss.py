@@ -80,21 +80,10 @@ class OSSProvider(AdvancedStorageProvider):
                 content_type=content_type
             )
             
-            # Add public URL if available; otherwise attach a presigned URL
+            # Attach only stable public URL when available (no temporary presigned here)
             if self.config.public_base_url:
                 upload_result.url = f"{self.config.public_base_url}/{key}"
-            else:
-                # Generate a presigned GET URL (default 1 hour)
-                try:
-                    presigned = await self.generate_presigned_url(
-                        key=key,
-                        expires_in=3600,
-                        method="GET",
-                    )
-                    upload_result.url = presigned.url
-                except Exception:
-                    # If presigning fails, proceed without URL; error handled upstream
-                    pass
+            # For private buckets, do not attach presigned URLs to result.url
             
             logger.info(f"Uploaded to OSS", key=key, size=len(file))
             return upload_result
@@ -258,29 +247,28 @@ class OSSProvider(AdvancedStorageProvider):
         expires_in: int = 3600,
         method: str = "GET",
         content_type: Optional[str] = None,
+        response_content_disposition: Optional[str] = None,
+        response_content_type: Optional[str] = None,
     ) -> PresignedRequest:
         """Generate presigned URL for OSS."""
         try:
             if method == "GET":
-                if content_type:
-                    url = await anyio.to_thread.run_sync(
-                        partial(
-                            self.bucket.sign_url,
-                            "GET",
-                            key,
-                            expires_in,
-                            headers={"Content-Type": content_type},
-                        )
+                # For GET, do NOT sign with headers like Content-Type: browsers won't send them.
+                # OSS also may reject overriding content-type via response headers in some configs.
+                # Only set response-content-disposition (inline/attachment + filename).
+                params = {}
+                if response_content_disposition:
+                    params["response-content-disposition"] = response_content_disposition
+                # Intentionally ignore response_content_type to avoid InvalidRequest
+                url = await anyio.to_thread.run_sync(
+                    partial(
+                        self.bucket.sign_url,
+                        "GET",
+                        key,
+                        expires_in,
+                        params=params if params else None,
                     )
-                else:
-                    url = await anyio.to_thread.run_sync(
-                        partial(
-                            self.bucket.sign_url,
-                            "GET",
-                            key,
-                            expires_in,
-                        )
-                    )
+                )
                 return PresignedRequest(
                     url=url,
                     method="GET",

@@ -62,6 +62,8 @@ class StorageProvider(Protocol):
         expires_in: int = 3600,
         method: str = "GET",
         content_type: Optional[str] = None,
+        response_content_disposition: Optional[str] = None,
+        response_content_type: Optional[str] = None,
     ) -> PresignedRequest:
         """Generate presigned URL for direct access."""
         ...

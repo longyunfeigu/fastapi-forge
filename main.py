@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from api.routes import user
 from api.routes import storage as storage_routes
+from api.routes import files as files_routes
 from api.middleware import RequestIDMiddleware, LoggingMiddleware
 from core.config import settings
 from core.exceptions import register_exception_handlers
@@ -121,6 +122,7 @@ register_exception_handlers(app)
 # 注册路由
 app.include_router(user.router, prefix="/api/v1")
 app.include_router(storage_routes.router, prefix="/api/v1")
+app.include_router(files_routes.router, prefix="/api/v1")
 
 
 # 根路径

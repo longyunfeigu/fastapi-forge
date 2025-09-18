@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # 基础配置
     PROJECT_NAME: str = Field(default="FastAPI DDD User Management", env=["PROJECT_NAME", "APP_NAME"]) 
     VERSION: str = Field(default="1.0.0", env=["VERSION", "APP_VERSION"]) 
-    DEBUG: bool = Field(default=False, env="DEBUG")
+    DEBUG: bool = Field(default=True, env="DEBUG")
     ENVIRONMENT: str = Field(default="development", env="ENVIRONMENT")
     
     # 数据库配置

@@ -246,12 +246,15 @@ class LocalProvider(AdvancedStorageProvider):
         expires_in: int = 3600,
         method: str = "GET",
         content_type: Optional[str] = None,
+        response_content_disposition: Optional[str] = None,
+        response_content_type: Optional[str] = None,
     ) -> PresignedRequest:
         """Generate presigned URL for local storage.
-        
+
         For local storage, this returns the public URL directly if configured.
         For secure access, this would need to be integrated with application auth.
         """
+        _ = (response_content_disposition, response_content_type)
         if self.config.public_base_url:
             url = f"{self.config.public_base_url}/{key}"
         else:

@@ -92,24 +92,13 @@ class S3Provider(AdvancedStorageProvider):
                 content_type=content_type
             )
             
-            # Add public URL if available; otherwise attach a presigned URL
+            # Attach only stable public URL when available (no temporary presigned here)
             if self.config.public_base_url:
                 result.url = f"{self.config.public_base_url}/{key}"
             elif self.config.s3_acl == "public-read":
                 # Public bucket: static URL is sufficient
                 result.url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
-            else:
-                # Private bucket: generate a presigned GET URL (default 1 hour)
-                try:
-                    presigned = await self.generate_presigned_url(
-                        key=key,
-                        expires_in=3600,
-                        method="GET",
-                    )
-                    result.url = presigned.url
-                except Exception:
-                    # If presigning fails, proceed without URL; error handled upstream
-                    pass
+            # For private buckets, do not attach presigned URLs to result.url
             
             logger.info(f"Uploaded to S3", key=key, size=len(file))
             return result
@@ -265,15 +254,22 @@ class S3Provider(AdvancedStorageProvider):
         expires_in: int = 3600,
         method: str = "GET",
         content_type: Optional[str] = None,
+        response_content_disposition: Optional[str] = None,
+        response_content_type: Optional[str] = None,
     ) -> PresignedRequest:
         """Generate presigned URL for S3."""
         try:
             if method == "GET":
+                params = {"Bucket": self.bucket, "Key": key}
+                if response_content_disposition:
+                    params["ResponseContentDisposition"] = response_content_disposition
+                if response_content_type:
+                    params["ResponseContentType"] = response_content_type
                 url = await anyio.to_thread.run_sync(
                     partial(
                         self.client.generate_presigned_url,
                         ClientMethod="get_object",
-                        Params={"Bucket": self.bucket, "Key": key},
+                        Params=params,
                         ExpiresIn=expires_in
                     )
                 )
@@ -327,11 +323,15 @@ class S3Provider(AdvancedStorageProvider):
                             ExpiresIn=expires_in,
                         )
                     )
+                headers = {}
+                if content_type:
+                    headers["Content-Type"] = content_type
                 return PresignedRequest(
                     url=response["url"],
                     method="POST",
                     expires_in=expires_in,
-                    fields=response["fields"]
+                    fields=response["fields"],
+                    headers=headers
                 )
             
             else:

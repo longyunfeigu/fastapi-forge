@@ -451,10 +451,17 @@ class MiddlewareStorage(StorageProvider):
         expires_in: int = 3600,
         method: str = "GET",
         content_type: Optional[str] = None,
+        response_content_disposition: Optional[str] = None,
+        response_content_type: Optional[str] = None,
     ):
         """Generate presigned URL."""
         return await self.provider.generate_presigned_url(
-            key, expires_in, method, content_type
+            key,
+            expires_in,
+            method,
+            content_type,
+            response_content_disposition=response_content_disposition,
+            response_content_type=response_content_type,
         )
     
     async def copy(self, source_key: str, dest_key: str) -> bool:
