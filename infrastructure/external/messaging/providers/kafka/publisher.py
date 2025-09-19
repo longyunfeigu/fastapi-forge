@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Iterable, List, Optional
+import time
 
 from ...base import Envelope, PublishMiddleware, PublishResult, Publisher, Serializer
 from ...config import KafkaConfig
@@ -38,9 +39,21 @@ class KafkaPublisher(Publisher):
             "message.send.max.retries": 10,
             "max.in.flight.requests.per.connection": cfg.producer.max_in_flight,
         }
+        # batching/timeout tuning (safe defaults)
+        conf["batch.size"] = cfg.producer.batch_size
+        # Prefer message.timeout.ms over deprecated delivery.timeout.ms
+        conf["message.timeout.ms"] = cfg.producer.message_timeout_ms
+        # Set security.protocol consistently for all combos of TLS/SASL
+        use_tls = cfg.tls.enable
+        use_sasl = bool(cfg.sasl.mechanism)
+        if use_tls:
+            security_protocol = "SASL_SSL" if use_sasl else "SSL"
+        else:
+            security_protocol = "SASL_PLAINTEXT" if use_sasl else "PLAINTEXT"
+        conf["security.protocol"] = security_protocol
+
         if cfg.tls.enable:
             conf.update({
-                "security.protocol": "SSL" if not cfg.sasl.mechanism else "SASL_SSL",
                 "ssl.ca.location": cfg.tls.ca_location,
                 "ssl.certificate.location": cfg.tls.certificate,
                 "ssl.key.location": cfg.tls.key,
@@ -54,6 +67,9 @@ class KafkaPublisher(Publisher):
             })
         self._Producer = Producer
         self._producer = Producer(conf)
+        # local timeouts for backpressure and delivery waiting (seconds)
+        self._send_wait_s = cfg.producer.send_wait_s
+        self._delivery_wait_s = cfg.producer.delivery_wait_s
 
     def publish(self, topic: str, env: Envelope) -> PublishResult:
         # middlewares before
@@ -73,20 +89,30 @@ class KafkaPublisher(Publisher):
                     topic=msg.topic(), partition=msg.partition(), offset=msg.offset(), timestamp=msg.timestamp()[1]
                 )
 
-        try:
-            self._producer.produce(
-                topic=topic,
-                key=key,
-                value=bytes(value_bytes),
-                headers=_to_confluent_headers(env.headers),
-                on_delivery=_delivery,
-            )
-        except BufferError as e:
-            # backpressure: block until queue drains
-            self._producer.poll(0.1)
-            raise PublishError(str(e)) from e
+        # Backpressure handling: retry on BufferError after polling, with deadline
+        send_deadline = time.monotonic() + self._send_wait_s
+        while True:
+            try:
+                self._producer.produce(
+                    topic=topic,
+                    key=key,
+                    value=bytes(value_bytes),
+                    headers=_to_confluent_headers(env.headers),
+                    on_delivery=_delivery,
+                )
+                break
+            except BufferError:
+                # allow delivery callbacks to run and free queue space
+                self._producer.poll(0.1)
+                if time.monotonic() >= send_deadline:
+                    raise PublishError("Producer queue full: timed out while retrying produce()")
 
-        self._producer.flush()
+        # Wait only for this message's delivery callback (do not flush all)
+        delivery_deadline = time.monotonic() + self._delivery_wait_s
+        while "error" not in meta_holder and "result" not in meta_holder:
+            self._producer.poll(0.05)
+            if time.monotonic() >= delivery_deadline:
+                raise PublishError("Delivery wait timeout for produced message")
 
         if "error" in meta_holder:
             raise PublishError(str(meta_holder["error"]))
@@ -98,9 +124,62 @@ class KafkaPublisher(Publisher):
             m.after_publish(topic, env, result)
         return result
 
+    def publish_many(self, topic: str, envs: Iterable[Envelope]) -> List[PublishResult]:  # type: ignore[override]
+        # Pre-size results for stable ordering
+        env_list = list(envs)
+        results: List[Optional[PublishResult]] = [None] * len(env_list)
+        errors: list[str] = []
+
+        def make_cb(i: int):
+            def _delivery(err, msg):  # type: ignore
+                if err is not None:
+                    errors.append(str(err))
+                else:
+                    results[i] = PublishResult(
+                        topic=msg.topic(), partition=msg.partition(), offset=msg.offset(), timestamp=msg.timestamp()[1]
+                    )
+            return _delivery
+
+        # before middlewares per message
+        processed_envs: List[Envelope] = []
+        for env in env_list:
+            e = env
+            for m in self.middlewares:
+                e = m.before_publish(topic, e)
+            processed_envs.append(e)
+
+        for i, env in enumerate(processed_envs):
+            value_bytes = env.payload if isinstance(env.payload, (bytes, bytearray)) else self.serializer.dumps(env.payload)
+            key = env.key
+
+            while True:
+                try:
+                    self._producer.produce(
+                        topic=topic,
+                        key=key,
+                        value=bytes(value_bytes),
+                        headers=_to_confluent_headers(env.headers),
+                        on_delivery=make_cb(i),
+                    )
+                    break
+                except BufferError:
+                    self._producer.poll(0.1)
+
+        # Flush once at the end
+        self._producer.flush()
+
+        if errors:
+            raise PublishError("; ".join(errors[:3]) + (" ..." if len(errors) > 3 else ""))
+
+        # after middlewares
+        for i, env in enumerate(processed_envs):
+            assert results[i] is not None
+            for m in self.middlewares:
+                m.after_publish(topic, env, results[i])  # type: ignore[arg-type]
+        return [r for r in results if r is not None]
+
     def close(self) -> None:
         try:
             self._producer.flush(5)
         except Exception:
             pass
-

@@ -4,10 +4,11 @@ This directory contains database migration files managed by Alembic.
 
 ## Setup
 
-1. Configure your database URL in `.env` file:
+1. Configure your database URL in `.env` file (nested style recommended):
    ```
-   DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+   DATABASE__URL=postgresql+asyncpg://user:password@localhost:5432/dbname
    ```
+   The tooling also falls back to `DATABASE_URL` for compatibility.
 
 2. Install dependencies:
    ```bash

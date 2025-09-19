@@ -21,8 +21,8 @@ celery_app = Celery("fastapi_forge")
 
 celery_app.conf.update(
     # Connection endpoints – fall back to env variables when settings omit them.
-    broker_url=settings.REDIS_URL or os.getenv("CELERY_BROKER_URL"),
-    result_backend=settings.REDIS_URL or os.getenv("CELERY_RESULT_BACKEND"),
+    broker_url=settings.redis.url or os.getenv("CELERY_BROKER_URL"),
+    result_backend=settings.redis.url or os.getenv("CELERY_RESULT_BACKEND"),
     # JSON keeps payloads interoperable and avoids arbitrary code execution.
     task_serializer="json",
     result_serializer="json",

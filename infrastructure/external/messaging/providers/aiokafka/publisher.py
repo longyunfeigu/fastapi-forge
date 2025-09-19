@@ -36,11 +36,43 @@ class AiokafkaPublisher(Publisher):
 
     async def _create_producer(self):
         from aiokafka import AIOKafkaProducer
+        import ssl
+
+        use_tls = self.cfg.tls.enable
+        use_sasl = bool(self.cfg.sasl.mechanism)
+        if use_tls:
+            security_protocol = "SASL_SSL" if use_sasl else "SSL"
+        else:
+            security_protocol = "SASL_PLAINTEXT" if use_sasl else "PLAINTEXT"
+
+        ssl_context = None
+        if use_tls:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            if self.cfg.tls.verify:
+                ctx.verify_mode = ssl.CERT_REQUIRED
+                try:
+                    if self.cfg.tls.ca_location:
+                        ctx.load_verify_locations(cafile=self.cfg.tls.ca_location)
+                    else:
+                        ctx.load_default_certs()
+                except Exception:
+                    ctx.load_default_certs()
+            else:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            if self.cfg.tls.certificate and self.cfg.tls.key:
+                ctx.load_cert_chain(certfile=self.cfg.tls.certificate, keyfile=self.cfg.tls.key)
+            ssl_context = ctx
 
         producer = AIOKafkaProducer(
             bootstrap_servers=self.cfg.bootstrap_servers,
             client_id=self.cfg.client_id,
             compression_type=self.cfg.producer.compression_type,
+            security_protocol=security_protocol,
+            ssl_context=ssl_context,
+            sasl_mechanism=self.cfg.sasl.mechanism,
+            sasl_plain_username=self.cfg.sasl.username,
+            sasl_plain_password=self.cfg.sasl.password,
         )
         await producer.start()
         return producer
@@ -71,4 +103,3 @@ class AiokafkaPublisher(Publisher):
             self._loop.run_coro(_stop())
         finally:
             self._loop.stop()
-

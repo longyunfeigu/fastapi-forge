@@ -239,7 +239,7 @@ class RedisClient(CacheInterface):
         formatted_key = self._format_key(key)
         try:
             payload = self._serializer(value)
-            expire = ttl if ttl is not None else settings.CACHE_DEFAULT_TTL
+            expire = ttl if ttl is not None else settings.redis.default_ttl
             
             result = await self._execute_with_metrics(
                 self._client.set,
@@ -311,7 +311,7 @@ class RedisClient(CacheInterface):
             
             # 使用pipeline提高性能
             async with self._client.pipeline() as pipe:
-                expire = ttl if ttl is not None else settings.CACHE_DEFAULT_TTL
+                expire = ttl if ttl is not None else settings.redis.default_ttl
                 
                 for key, value in formatted_mapping.items():
                     if expire and expire > 0:
@@ -338,7 +338,7 @@ class RedisClient(CacheInterface):
                 self._client.incrby, formatted_key, amount
             )
             
-            expire = ttl if ttl is not None else settings.CACHE_DEFAULT_TTL
+            expire = ttl if ttl is not None else settings.redis.default_ttl
             if expire and expire > 0:
                 await self._client.expire(formatted_key, expire)
             
@@ -1175,8 +1175,8 @@ async def init_redis_client(
         if _cache_instance is not None:
             return _cache_instance
         
-        if not settings.REDIS_URL:
-            raise RuntimeError("REDIS_URL 未配置，无法初始化Redis客户端")
+        if not settings.redis.url:
+            raise RuntimeError("REDIS__URL 未配置，无法初始化Redis客户端")
         
         try:
             # 创建Redis连接
@@ -1190,10 +1190,10 @@ async def init_redis_client(
                 }
 
             client = aioredis.from_url(
-                settings.REDIS_URL,
+                settings.redis.url,
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=settings.REDIS_MAX_CONNECTIONS,
+                max_connections=settings.redis.max_connections,
                 socket_keepalive=True,
                 socket_keepalive_options=keepalive_opts,
                 **kwargs
@@ -1205,12 +1205,12 @@ async def init_redis_client(
             _redis_client = client
             _cache_instance = RedisClient(
                 client=client,
-                namespace=namespace or settings.CACHE_NAMESPACE,
+                namespace=namespace or settings.redis.namespace,
                 enable_metrics=enable_metrics,
                 enable_logging=enable_logging
             )
             
-            logger.info(f"Redis客户端初始化成功: {settings.REDIS_URL}")
+            logger.info(f"Redis客户端初始化成功: {settings.redis.url}")
             return _cache_instance
             
         except Exception as e:
@@ -1256,14 +1256,14 @@ async def create_redis_client(
     Returns:
         新的RedisClient实例
     """
-    if not settings.REDIS_URL:
-        raise RuntimeError("REDIS_URL 未配置")
+    if not settings.redis.url:
+        raise RuntimeError("REDIS__URL 未配置")
     
     client = aioredis.from_url(
-        settings.REDIS_URL,
+        settings.redis.url,
         encoding="utf-8",
         decode_responses=True,
-        max_connections=settings.REDIS_MAX_CONNECTIONS,
+        max_connections=settings.redis.max_connections,
         **kwargs
     )
     

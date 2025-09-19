@@ -71,11 +71,11 @@ python main.py
 示例（消息系统）
 ```bash
 # 生产消息
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+KAFKA__BOOTSTRAP_SERVERS=localhost:9092 \
 python examples/messaging_demo.py produce --topic demo.topic.v1 --count 3 --interval 0.2
 
 # 消费消息（订阅主 + 重试主题）
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+KAFKA__BOOTSTRAP_SERVERS=localhost:9092 \
 python examples/messaging_demo.py consume --topic demo.topic.v1 --group demo-group
 ```
 
@@ -186,7 +186,7 @@ LOG_REQUEST_BODY_ALLOW_MULTIPART=false
 
 ```
 # 启用 Redis 以获得强一致的首超判定（同时也用于缓存/任务队列）
-REDIS_URL=redis://localhost:6379/0
+REDIS__URL=redis://localhost:6379/0
 ```
 
 说明

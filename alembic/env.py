@@ -35,13 +35,13 @@ target_metadata = Base.metadata
 def get_database_url():
     """Get database URL from environment variable or .env file"""
     # Try to get from environment variable
-    database_url = os.getenv("DATABASE_URL")
+    database_url = os.getenv("DATABASE_URL") or os.getenv("DATABASE__URL")
     
     # If not found, try to load from .env file
     if not database_url:
         from dotenv import load_dotenv
         load_dotenv()
-        database_url = os.getenv("DATABASE_URL")
+        database_url = os.getenv("DATABASE_URL") or os.getenv("DATABASE__URL")
     
     # Fallback to a default SQLite (async) database for development
     if not database_url:

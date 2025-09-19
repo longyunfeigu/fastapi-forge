@@ -2,9 +2,97 @@
 配置文件 - 项目配置管理
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from pydantic import model_validator
+
+
+class KafkaSettings(BaseModel):
+    # Provider/driver
+    provider: str = Field(default="kafka")
+    driver: str = Field(default="confluent")  # confluent or aiokafka
+
+    # Core Kafka
+    bootstrap_servers: str = Field(default="localhost:9092")
+    client_id: str = Field(default="app-messaging")
+    transactional_id: Optional[str] = None
+
+    # TLS
+    tls_enable: bool = False
+    tls_ca_location: Optional[str] = None
+    tls_certificate: Optional[str] = None
+    tls_key: Optional[str] = None
+    tls_verify: bool = True
+
+    # SASL
+    sasl_mechanism: Optional[str] = None
+    sasl_username: Optional[str] = None
+    sasl_password: Optional[str] = None
+
+    # Producer tuning
+    producer_acks: str = "all"
+    producer_enable_idempotence: bool = True
+    producer_compression_type: str = "zstd"
+    producer_linger_ms: int = 5
+    producer_batch_size: int = 64 * 1024
+    producer_max_in_flight: int = 5
+    producer_message_timeout_ms: int = 120_000
+    producer_send_wait_s: float = 5.0
+    producer_delivery_wait_s: float = 30.0
+
+    # Consumer tuning
+    consumer_enable_auto_commit: bool = False
+    consumer_auto_offset_reset: str = "latest"
+    consumer_max_poll_interval_ms: int = 300000
+    consumer_session_timeout_ms: int = 45000
+    consumer_fetch_min_bytes: int = 1
+    consumer_fetch_max_bytes: int = 50 * 1024 * 1024
+    consumer_commit_every_n: int = 100
+    consumer_commit_interval_ms: int = 2000
+    consumer_max_concurrency: int = 1
+    consumer_inflight_max: int = 1000
+
+    # Retry policy
+    retry_layers: Optional[str] = "retry.5s:5000,retry.1m:60000,retry.10m:600000"
+    retry_dlq_suffix: str = "dlq"
+
+
+class RedisSettings(BaseModel):
+    url: Optional[str] = None
+    max_connections: int = 10
+    default_ttl: int = 300
+    namespace: str = "fastapi-forge"
+
+
+class DatabaseSettings(BaseModel):
+    url: str = "postgresql+asyncpg://user:password@localhost/userdb"
+
+
+class StorageSettings(BaseModel):
+    type: str = "local"  # local, s3, oss
+    bucket: Optional[str] = None
+    region: Optional[str] = None
+    endpoint: Optional[str] = None
+    public_base_url: Optional[str] = None
+    # S3 specific
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    s3_sse: Optional[str] = None
+    s3_acl: str = "private"
+    # OSS specific
+    oss_access_key_id: Optional[str] = None
+    oss_access_key_secret: Optional[str] = None
+    # Local storage specific
+    local_base_path: str = "/tmp/storage"
+    # Advanced settings
+    max_retry_attempts: int = 3
+    timeout: int = 30
+    enable_ssl: bool = True
+    presign_max_size: int = 100 * 1024 * 1024  # 100MB
+    presign_content_types: Optional[list[str]] = None
+    validation_enabled: bool = False
+    max_file_size: int = 100 * 1024 * 1024  # 100MB
+    allowed_types: Optional[list[str]] = None
 
 
 class Settings(BaseSettings):
@@ -16,11 +104,10 @@ class Settings(BaseSettings):
     DEBUG: bool = Field(default=True, env="DEBUG")
     ENVIRONMENT: str = Field(default="development", env="ENVIRONMENT")
     
-    # 数据库配置
-    DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://user:password@localhost/userdb",
-        env="DATABASE_URL"
-    )
+    # 分组配置（方案A）：Kafka/Redis/Database/Storage 采用嵌套模型（外部类）
+    kafka: KafkaSettings = Field(default_factory=KafkaSettings)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
+    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     
     # 安全配置
     SECRET_KEY: Optional[str] = Field(
@@ -38,11 +125,7 @@ class Settings(BaseSettings):
         env="CORS_ORIGINS"
     )
     
-    # 缓存配置
-    REDIS_URL: Optional[str] = Field(default=None, env="REDIS_URL")
-    REDIS_MAX_CONNECTIONS: int = Field(default=10, env="REDIS_MAX_CONNECTIONS")
-    CACHE_DEFAULT_TTL: int = Field(default=300, env="CACHE_DEFAULT_TTL")
-    CACHE_NAMESPACE: str = Field(default="fastapi-forge", env="CACHE_NAMESPACE")
+    storage: StorageSettings = Field(default_factory=StorageSettings)
 
     # 分页配置（支持环境变量覆盖）
     DEFAULT_PAGE_SIZE: int = Field(default=20, env="DEFAULT_PAGE_SIZE")
@@ -62,39 +145,14 @@ class Settings(BaseSettings):
     REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO: float = Field(default=0.6, env="REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO")
     REDIS_LOCK_AUTO_RENEW_JITTER_RATIO: float = Field(default=0.1, env="REDIS_LOCK_AUTO_RENEW_JITTER_RATIO")
     
-    # 存储服务配置
-    STORAGE_TYPE: str = Field(default="local", env="STORAGE_TYPE")  # local, s3, oss
-    STORAGE_BUCKET: Optional[str] = Field(default=None, env="STORAGE_BUCKET")
-    STORAGE_REGION: Optional[str] = Field(default=None, env="STORAGE_REGION")
-    STORAGE_ENDPOINT: Optional[str] = Field(default=None, env="STORAGE_ENDPOINT")
-    STORAGE_PUBLIC_BASE_URL: Optional[str] = Field(default=None, env="STORAGE_PUBLIC_BASE_URL")
-    
-    # S3 specific
-    AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None, env="AWS_ACCESS_KEY_ID")
-    AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None, env="AWS_SECRET_ACCESS_KEY")
-    S3_SSE: Optional[str] = Field(default=None, env="S3_SSE")
-    S3_ACL: str = Field(default="private", env="S3_ACL")
-    
-    # OSS specific
-    OSS_ACCESS_KEY_ID: Optional[str] = Field(default=None, env="OSS_ACCESS_KEY_ID")
-    OSS_ACCESS_KEY_SECRET: Optional[str] = Field(default=None, env="OSS_ACCESS_KEY_SECRET")
-    
-    # Local storage specific
-    STORAGE_LOCAL_BASE_PATH: str = Field(default="/tmp/storage", env="STORAGE_LOCAL_BASE_PATH")
-    
-    # Storage advanced settings
-    STORAGE_MAX_RETRY_ATTEMPTS: int = Field(default=3, env="STORAGE_MAX_RETRY_ATTEMPTS")
-    STORAGE_TIMEOUT: int = Field(default=30, env="STORAGE_TIMEOUT")
-    STORAGE_ENABLE_SSL: bool = Field(default=True, env="STORAGE_ENABLE_SSL")
-    STORAGE_PRESIGN_MAX_SIZE: int = Field(default=100 * 1024 * 1024, env="STORAGE_PRESIGN_MAX_SIZE")  # 100MB
-    STORAGE_VALIDATION_ENABLED: bool = Field(default=False, env="STORAGE_VALIDATION_ENABLED")
-    STORAGE_MAX_FILE_SIZE: int = Field(default=100 * 1024 * 1024, env="STORAGE_MAX_FILE_SIZE")  # 100MB
+    # Kafka grouped settings (builder below)
     
     # pydantic-settings v2 configuration
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
         extra="allow",
+        env_nested_delimiter="__",
     )
 
     @model_validator(mode="after")

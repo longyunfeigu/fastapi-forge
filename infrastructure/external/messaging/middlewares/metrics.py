@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from typing import Optional
+import contextvars
 
 from ..base import ConsumeMiddleware, Envelope, HandleResult, PublishMiddleware, PublishResult
 
@@ -33,20 +34,29 @@ class MetricsMiddleware(PublishMiddleware, ConsumeMiddleware):
             self.pub_latency = None
             self.con_counter = None
             self.con_latency = None
-        self._start_ts: Optional[float] = None
+        # Use context-local storage to avoid cross-request interference
+        self._pub_start: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar(
+            "messaging_pub_start_ts", default=None
+        )
+        self._con_start: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar(
+            "messaging_con_start_ts", default=None
+        )
 
     def before_publish(self, topic: str, env: Envelope) -> Envelope:  # type: ignore[override]
-        self._start_ts = time.perf_counter()
+        self._pub_start.set(time.perf_counter())
         return env
 
     def after_publish(self, topic: str, env: Envelope, result: PublishResult) -> None:  # type: ignore[override]
         if self.pub_counter:
             self.pub_counter.labels(topic=topic, result="ok").inc()
-        if self.pub_latency and self._start_ts is not None:
-            self.pub_latency.observe((time.perf_counter() - self._start_ts) * 1000)
+        if self.pub_latency:
+            ts = self._pub_start.get()
+            if ts is not None:
+                self.pub_latency.observe((time.perf_counter() - ts) * 1000)
+                self._pub_start.set(None)
 
     def before_handle(self, topic: str, partition: int, offset: int, env: Envelope) -> Envelope:  # type: ignore[override]
-        self._start_ts = time.perf_counter()
+        self._con_start.set(time.perf_counter())
         return env
 
     def after_handle(
@@ -61,6 +71,8 @@ class MetricsMiddleware(PublishMiddleware, ConsumeMiddleware):
         if self.con_counter:
             label = "error" if exc else result.value.lower()
             self.con_counter.labels(topic=topic, result=label).inc()
-        if self.con_latency and self._start_ts is not None:
-            self.con_latency.observe((time.perf_counter() - self._start_ts) * 1000)
-
+        if self.con_latency:
+            ts = self._con_start.get()
+            if ts is not None:
+                self.con_latency.observe((time.perf_counter() - ts) * 1000)
+                self._con_start.set(None)

@@ -34,7 +34,7 @@ class UserApplicationService:
         needs_lock = await self._is_first_user_candidate()
 
         cache = None
-        if needs_lock and settings.REDIS_URL:
+        if needs_lock and settings.redis.url:
             try:
                 from infrastructure.external.cache import get_redis_client
                 cache = await get_redis_client()

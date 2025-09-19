@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
             "database_migrations_required",
             message="生产环境不自动建表，请使用 Alembic 迁移 (alembic upgrade head)"
         )
-    if settings.REDIS_URL:
+    if settings.redis.url:
         try:
             await init_redis_client()
             logger.info("redis_cache_initialized", message="Redis缓存初始化完成")
@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
     
     yield
     # 关闭时的清理工作
-    if settings.REDIS_URL:
+    if settings.redis.url:
         await shutdown_redis_client()
         logger.info("redis_cache_shutdown", message="Redis缓存已关闭")
     

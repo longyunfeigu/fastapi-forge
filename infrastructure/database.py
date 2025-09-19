@@ -25,14 +25,14 @@ def _build_async_url(database_url: str) -> str:
     }
 
     if drivername not in driver_map:
-        raise ValueError(f"不支持的数据库驱动: {drivername}. 请使用 async 驱动或更新DATABASE_URL")
+        raise ValueError(f"不支持的数据库驱动: {drivername}. 请使用 async 驱动或更新数据库连接字符串")
 
     async_driver = driver_map[drivername]
     return str(url.set(drivername=async_driver))
 
 
 engine = create_async_engine(
-    _build_async_url(settings.DATABASE_URL),
+    _build_async_url(settings.database.url),
     echo=settings.DEBUG,
     future=True
 )

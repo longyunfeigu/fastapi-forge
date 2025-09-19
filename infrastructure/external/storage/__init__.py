@@ -29,39 +29,33 @@ def get_storage_config() -> StorageConfig:
     Returns:
         Storage configuration instance
     """
+    s = settings.storage
     config_dict = {
-        "type": getattr(settings, "STORAGE_TYPE", StorageType.LOCAL),
-        "bucket": getattr(settings, "STORAGE_BUCKET", None),
-        "region": getattr(settings, "STORAGE_REGION", None),
-        "endpoint": getattr(settings, "STORAGE_ENDPOINT", None),
-        "public_base_url": getattr(settings, "STORAGE_PUBLIC_BASE_URL", None),
-        
+        "type": s.type or StorageType.LOCAL,
+        "bucket": s.bucket,
+        "region": s.region,
+        "endpoint": s.endpoint,
+        "public_base_url": s.public_base_url,
         # S3 specific
-        "aws_access_key_id": getattr(settings, "AWS_ACCESS_KEY_ID", None),
-        "aws_secret_access_key": getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
-        "s3_sse": getattr(settings, "S3_SSE", None),
-        "s3_acl": getattr(settings, "S3_ACL", "private"),
-        
+        "aws_access_key_id": s.aws_access_key_id,
+        "aws_secret_access_key": s.aws_secret_access_key,
+        "s3_sse": s.s3_sse,
+        "s3_acl": s.s3_acl,
         # OSS specific
-        "oss_access_key_id": getattr(settings, "OSS_ACCESS_KEY_ID", None),
-        "oss_access_key_secret": getattr(settings, "OSS_ACCESS_KEY_SECRET", None),
-        
+        "oss_access_key_id": s.oss_access_key_id,
+        "oss_access_key_secret": s.oss_access_key_secret,
         # Local specific
-        "local_base_path": getattr(settings, "STORAGE_LOCAL_BASE_PATH", "/tmp/storage"),
-        
+        "local_base_path": s.local_base_path,
         # Advanced settings
-        "max_retry_attempts": getattr(settings, "STORAGE_MAX_RETRY_ATTEMPTS", 3),
-        "timeout": getattr(settings, "STORAGE_TIMEOUT", 30),
-        "enable_ssl": getattr(settings, "STORAGE_ENABLE_SSL", True),
-        "presign_max_size": getattr(settings, "STORAGE_PRESIGN_MAX_SIZE", 100 * 1024 * 1024),
-        "presign_content_types": getattr(
-            settings,
-            "STORAGE_PRESIGN_CONTENT_TYPES",
-            [
+        "max_retry_attempts": s.max_retry_attempts,
+        "timeout": s.timeout,
+        "enable_ssl": s.enable_ssl,
+        "presign_max_size": s.presign_max_size,
+        "presign_content_types": s.presign_content_types
+            or [
                 "image/jpeg", "image/png", "image/gif", "image/webp",
                 "application/pdf", "video/mp4", "audio/mpeg"
-            ]
-        )
+            ],
     }
     
     return StorageConfig(**config_dict)
@@ -92,9 +86,9 @@ async def init_storage_client() -> None:
         middlewares.append(LoggingMiddleware())
         
         # Add validation middleware if configured
-        if hasattr(settings, "STORAGE_VALIDATION_ENABLED") and settings.STORAGE_VALIDATION_ENABLED:
-            max_size = getattr(settings, "STORAGE_MAX_FILE_SIZE", 100 * 1024 * 1024)
-            allowed_types = getattr(settings, "STORAGE_ALLOWED_TYPES", None)
+        if s.validation_enabled:
+            max_size = s.max_file_size
+            allowed_types = s.allowed_types
             middlewares.append(ValidationMiddleware(max_size, allowed_types))
         
         # Apply middleware

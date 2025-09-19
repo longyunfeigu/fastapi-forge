@@ -9,26 +9,18 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from infrastructure.external.messaging import (
-    MessagingConfig,
-    HandleResult,
-)
+from infrastructure.external.messaging import HandleResult
 from infrastructure.external.messaging.serializers.json import JsonSerializer
 from infrastructure.external.messaging.base import Envelope
 from infrastructure.external.messaging.middlewares import LoggingMiddleware, MetricsMiddleware
 from infrastructure.external.messaging.factory import create_publisher, create_consumer
+from infrastructure.external.messaging.config_builder import messaging_config_from_settings
+from core.config import settings
 
 
-def _apply_env(cfg: MessagingConfig) -> None:
-    bs = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
-    if bs:
-        cfg.kafka.bootstrap_servers = bs
-    driver = os.getenv("KAFKA_DRIVER")
-    if driver in {"confluent", "aiokafka"}:
-        cfg.kafka.driver = driver  # type: ignore
-    client_id = os.getenv("KAFKA_CLIENT_ID")
-    if client_id:
-        cfg.kafka.client_id = client_id
+def _load_cfg():
+    # Build messaging config from central app settings (decoupled builder)
+    return messaging_config_from_settings(settings.kafka)
 
 
 def check_readiness(cfg: MessagingConfig, timeout: float = 5.0) -> bool:
@@ -67,8 +59,7 @@ def check_readiness(cfg: MessagingConfig, timeout: float = 5.0) -> bool:
 
 
 def run_producer(topic: str, key: bytes | None, count: int, interval: float) -> None:
-    cfg = MessagingConfig()
-    _apply_env(cfg)
+    cfg = _load_cfg()
     if not check_readiness(cfg):
         print("Broker not ready; aborting.")
         sys.exit(2)
@@ -90,8 +81,7 @@ def run_producer(topic: str, key: bytes | None, count: int, interval: float) -> 
 
 
 def run_consumer(topic: str, group: str) -> None:
-    cfg = MessagingConfig()
-    _apply_env(cfg)
+    cfg = _load_cfg()
     if not check_readiness(cfg):
         print("Broker not ready; aborting.")
         sys.exit(2)

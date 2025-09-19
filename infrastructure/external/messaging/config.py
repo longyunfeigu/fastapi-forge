@@ -28,6 +28,10 @@ class ProducerTuning:
     linger_ms: int = 5
     batch_size: int = 64 * 1024
     max_in_flight: int = 5
+    # Delivery/timeout tuning
+    message_timeout_ms: int = 120_000
+    send_wait_s: float = 5.0
+    delivery_wait_s: float = 30.0
 
 
 @dataclass(slots=True)
@@ -79,4 +83,3 @@ class MessagingConfig:
     provider: Literal["kafka"] = "kafka"
     kafka: KafkaConfig = field(default_factory=KafkaConfig)
     retry: RetryConfig = field(default_factory=RetryConfig)
-

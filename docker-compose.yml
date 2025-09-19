@@ -21,7 +21,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://user:password@postgres:5432/userdb
+      DATABASE__URL: postgresql+asyncpg://user:password@postgres:5432/userdb
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-here}
       DEBUG: ${DEBUG:-false}
     depends_on:
