@@ -40,7 +40,6 @@ class KafkaPublisher(Publisher):
             "max.in.flight.requests.per.connection": cfg.producer.max_in_flight,
         }
         # batching/timeout tuning (safe defaults)
-        conf["batch.size"] = cfg.producer.batch_size
         # Prefer message.timeout.ms over deprecated delivery.timeout.ms
         conf["message.timeout.ms"] = cfg.producer.message_timeout_ms
         # Set security.protocol consistently for all combos of TLS/SASL

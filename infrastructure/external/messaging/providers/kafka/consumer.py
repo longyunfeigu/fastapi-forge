@@ -125,8 +125,7 @@ class KafkaConsumer(Consumer):
             "acks": self.cfg.producer.acks,
             "max.in.flight.requests.per.connection": self.cfg.producer.max_in_flight,
         }
-        # batch/timeout tuning aligned with publisher
-        prod_conf["batch.size"] = self.cfg.producer.batch_size
+        # timeout tuning aligned with publisher
         prod_conf["message.timeout.ms"] = self.cfg.producer.message_timeout_ms
         # Use same security.protocol for the producer used by the consumer
         prod_conf["security.protocol"] = security_protocol
