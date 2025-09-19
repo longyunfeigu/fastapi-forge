@@ -1,0 +1,14 @@
+{
+  "id": "EV-20250919-0001",
+  "create_time": "2025-09-19T10:01:00+08:00",
+  "event_type": "TRANSACTION.SUCCESS",
+  "resource_type": "encrypt-resource",
+  "resource": {
+    "algorithm": "AEAD_AES_256_GCM",
+    "ciphertext": "BASE64_ENCRYPTED_PAYLOAD",
+    "nonce": "RANDOM_NONCE",
+    "associated_data": "transaction"
+  },
+  "summary": "支付成功"
+}
+

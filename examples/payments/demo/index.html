@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payments Demo</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+    .row { display: flex; gap: 2rem; flex-wrap: wrap; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; width: 380px; }
+    label { display:block; margin:.5rem 0 .25rem; }
+    input, select { width:100%; padding:.5rem; }
+    button { margin-top: 1rem; padding: .6rem 1rem; }
+    #qr { margin-top: 1rem; }
+    .log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f7f7f7; padding:.5rem; border-radius:4px; height:120px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h1>Payments Demo</h1>
+  <p>Backend base URL: <input id="baseUrl" value="http://localhost:8000" style="width:320px"></p>
+
+  <div class="row">
+    <div class="card">
+      <h3>Stripe (Payment Element)</h3>
+      <label>Publishable key</label>
+      <input id="stripePk" placeholder="pk_test_..." />
+      <label>Order ID</label>
+      <input id="sOrder" value="ORDER_10001" />
+      <label>Amount (USD)</label>
+      <input id="sAmount" value="19.99" />
+      <div id="payment-element"></div>
+      <button id="sCreate">Create Intent</button>
+      <button id="sPay" disabled>Pay</button>
+      <div class="log" id="sLog"></div>
+    </div>
+
+    <div class="card">
+      <h3>QR Pay (Alipay / WeChat)</h3>
+      <label>Provider</label>
+      <select id="qrProvider">
+        <option value="alipay">alipay</option>
+        <option value="wechat">wechat</option>
+      </select>
+      <label>Order ID</label>
+      <input id="qOrder" value="ORDER_20250919_0001" />
+      <label>Amount</label>
+      <input id="qAmount" value="88.88" />
+      <button id="qCreate">Create QR</button>
+      <div id="qr"></div>
+      <div class="log" id="qLog"></div>
+    </div>
+  </div>
+
+  <script>
+    let stripe, elements, clientSecret;
+
+    const $ = (id) => document.getElementById(id);
+    const log = (id, msg) => { const el = $(id); el.textContent += `\n${msg}`; el.scrollTop = el.scrollHeight; };
+
+    $('sCreate').onclick = async () => {
+      const base = $('baseUrl').value.replace(/\/$/, '');
+      const orderId = $('sOrder').value;
+      const amount = $('sAmount').value;
+      const pk = $('stripePk').value;
+
+      if (!pk) { alert('Provide Stripe publishable key'); return; }
+      stripe = Stripe(pk);
+
+      const res = await fetch(`${base}/api/v1/payments/intents`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, amount, currency: 'USD', provider: 'stripe', scene: 'card', metadata: { customer_id: 'demo_user' } })
+      });
+      const json = await res.json();
+      if (json.code !== 0) { log('sLog', JSON.stringify(json)); return; }
+      clientSecret = json.data.client_secret_or_params.client_secret;
+      log('sLog', `Intent created: ${json.data.intent_id}`);
+
+      elements = stripe.elements({ clientSecret });
+      const paymentElement = elements.create('payment');
+      paymentElement.mount('#payment-element');
+      $('sPay').disabled = false;
+    };
+
+    $('sPay').onclick = async () => {
+      const base = $('baseUrl').value.replace(/\/$/, '');
+      if (!stripe || !elements) return;
+      const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: base } });
+      if (error) log('sLog', error.message || String(error));
+    };
+
+    $('qCreate').onclick = async () => {
+      const base = $('baseUrl').value.replace(/\/$/, '');
+      const provider = $('qrProvider').value;
+      const orderId = $('qOrder').value;
+      const amount = $('qAmount').value;
+      const scene = provider === 'wechat' ? 'qr_code' : 'qr_code';
+      const currency = provider === 'wechat' ? 'CNY' : 'CNY';
+      const res = await fetch(`${base}/api/v1/payments/intents`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, amount, currency, provider, scene, metadata: {} })
+      });
+      const json = await res.json();
+      if (json.code !== 0) { log('qLog', JSON.stringify(json)); return; }
+      const params = json.data.client_secret_or_params || {};
+      const url = params.qr_code || params.code_url;
+      if (!url) { log('qLog', 'No QR URL in response'); return; }
+      document.getElementById('qr').innerHTML = '';
+      QRCode.toCanvas(document.createElement('canvas'), url, { width: 256 }, (err, canvas) => {
+        if (err) { log('qLog', String(err)); return; }
+        document.getElementById('qr').appendChild(canvas);
+        log('qLog', `QR ready: ${url.substring(0,64)}...`);
+      });
+    };
+  </script>
+</body>
+</html>
+

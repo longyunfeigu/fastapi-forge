@@ -14,6 +14,7 @@ from .beat import CELERY_BEAT_SCHEDULE
 # listed here rather than altering the runtime imports scattered elsewhere.
 CELERY_IMPORTS = (
     "infrastructure.tasks.tasks",
+    "infrastructure.tasks.payment_tasks",
 )
 
 

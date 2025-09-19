@@ -22,3 +22,6 @@ oss2==2.19.0
 boto3==1.34.34
 confluent-kafka>=2.3,<3
 aiokafka>=0.10,<1
+stripe>=10,<13
+wechatpayv3>=1.3.11
+alipay-sdk-python-all>=3.6.114

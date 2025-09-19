@@ -1,0 +1,8 @@
+{
+  "description": "order:ORDER_20250919_0001",
+  "out_trade_no": "ORDER_20250919_0001",
+  "amount": { "total": 8888, "currency": "CNY" },
+  "payer": { "openid": "oUpF8uMuAJO_M2pxb1Q9zNjWeS6o" },
+  "notify_url": "https://api.example.com/api/v1/payments/webhooks/wechat"
+}
+

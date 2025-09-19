@@ -1,0 +1,16 @@
+notify_time=2025-09-19 10:00:00&
+notify_type=trade_status_sync&
+notify_id=abcd1234&
+app_id=2021000118631234&
+charset=utf-8&
+version=1.0&
+sign_type=RSA2&
+sign=BASE64_SIGNATURE==&
+trade_no=2025091922001401234567890&
+out_trade_no=ORDER_20250919_0001&
+total_amount=88.88&
+trade_status=TRADE_SUCCESS&
+gmt_payment=2025-09-19 10:01:00&
+seller_id=2088101122136241&
+buyer_id=2088101117955611
+
