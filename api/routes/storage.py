@@ -25,7 +25,7 @@ from application.dto import (
     PresignUploadResponseDTO,
     PresignUploadDetailDTO,
 )
-from application.file_asset_service import FileAssetApplicationService
+from application.services.file_asset_service import FileAssetApplicationService
 from core.response import (
     Response as ApiResponse,
     success_response,

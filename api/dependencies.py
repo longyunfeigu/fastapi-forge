@@ -5,8 +5,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 
-from application.user_service import UserApplicationService
-from application.file_asset_service import FileAssetApplicationService
+from application.services.user_service import UserApplicationService
+from application.services.file_asset_service import FileAssetApplicationService
 from application.ports.storage import StoragePort
 from application.dto import UserResponseDTO
 from infrastructure.unit_of_work import SQLAlchemyUnitOfWork

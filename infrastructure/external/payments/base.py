@@ -22,7 +22,7 @@ from application.dtos.payments import (
     ClosePayment,
     WebhookEvent,
 )
-from domain.services.payment_gateway import PaymentGateway
+from application.ports.payment_gateway import PaymentGateway
 from infrastructure.external.payments.exceptions import (
     PaymentProviderError,
     PaymentRecoverableError,

@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Optional
 
 from core.settings import payment_settings
-from domain.services.payment_gateway import PaymentGateway
+from application.ports.payment_gateway import PaymentGateway
 
 
 def get_payment_gateway(provider: Optional[str] = None) -> PaymentGateway:
@@ -21,4 +21,3 @@ def get_payment_gateway(provider: Optional[str] = None) -> PaymentGateway:
         from .alipay_client import AlipayClient
         return AlipayClient()
     raise ValueError(f"Unsupported payment provider: {name}")
-

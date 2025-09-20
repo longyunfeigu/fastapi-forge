@@ -7,6 +7,7 @@ from celery import shared_task
 import asyncio
 
 from application.services.payment_service import PaymentService
+from infrastructure.external.payments import get_payment_gateway
 from application.dtos.payments import QueryPayment, RefundRequest
 from decimal import Decimal
 from core.logging_config import get_logger
@@ -19,7 +20,7 @@ logger = get_logger(__name__)
 def task_query_status(self, provider: str, order_id: str):
     try:
         async def _run():
-            service = PaymentService(provider=provider)
+            service = PaymentService(gateway=get_payment_gateway(provider))
             try:
                 return await service.query_payment(QueryPayment(order_id=order_id, provider=provider))
             finally:
@@ -37,7 +38,7 @@ def task_query_status(self, provider: str, order_id: str):
 def task_refund(self, provider: str, order_id: str, amount: str, currency: str = "CNY", reason: str | None = None):
     try:
         async def _run():
-            service = PaymentService(provider=provider)
+            service = PaymentService(gateway=get_payment_gateway(provider))
             try:
                 return await service.refund(RefundRequest(order_id=order_id, amount=Decimal(amount), currency=currency, reason=reason, provider=provider))
             finally:

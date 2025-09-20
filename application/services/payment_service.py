@@ -1,11 +1,12 @@
 """
-Application service orchestrating use-cases for payments.
+Application service orchestrating payment use-cases.
 
-Depends only on the PaymentGateway protocol and DTOs.
+This class depends only on the application PaymentGateway port and DTOs.
+Gateway implementations are provided by infrastructure and must be injected
+from the composition root (API/tasks), keeping dependencies one-way.
 """
 from __future__ import annotations
 
-from typing import Optional
 import hashlib
 
 from application.dtos.payments import (
@@ -17,8 +18,7 @@ from application.dtos.payments import (
     ClosePayment,
     WebhookEvent,
 )
-from domain.services.payment_gateway import PaymentGateway
-from infrastructure.external.payments import get_payment_gateway
+from application.ports.payment_gateway import PaymentGateway
 from core.logging_config import get_logger
 
 
@@ -50,11 +50,8 @@ def _ensure_idempotency_key(req: CreatePayment | RefundRequest) -> None:
 
 
 class PaymentService:
-    def __init__(self, *, provider: Optional[str] = None, gateway: Optional[PaymentGateway] = None) -> None:
-        # Enforce single source of truth
-        if gateway is not None and provider is not None and provider.lower() != getattr(gateway, "provider", provider).lower():
-            raise ValueError("provider and injected gateway.provider mismatch")
-        self.gateway = gateway or get_payment_gateway(provider)
+    def __init__(self, gateway: PaymentGateway) -> None:
+        self.gateway = gateway
 
     async def create_payment(self, req: CreatePayment) -> PaymentIntent:
         _ensure_idempotency_key(req)
@@ -86,10 +83,9 @@ class PaymentService:
         logger.info("payment_close_request", order_id=req.order_id, provider=req.provider or self.gateway.provider)
         await self.gateway.close_payment(req)
 
-    def handle_webhook(self, provider: str, headers: dict, body: bytes) -> WebhookEvent:
-        gw = get_payment_gateway(provider)
-        event = gw.parse_webhook(headers, body)
-        logger.info("payment_webhook_parsed", provider=provider, event_type=event.type, event_id=event.id)
+    def handle_webhook(self, headers: dict, body: bytes) -> WebhookEvent:
+        event = self.gateway.parse_webhook(headers, body)
+        logger.info("payment_webhook_parsed", provider=self.gateway.provider, event_type=event.type, event_id=event.id)
         return event
 
     async def aclose(self) -> None:

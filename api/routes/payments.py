@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Query
 
 from application.services.payment_service import PaymentService
+from infrastructure.external.payments import get_payment_gateway
 from application.dtos.payments import (
     CreatePayment,
     PaymentIntent,
@@ -65,8 +66,9 @@ async def payments_webhook(provider: str, request: Request):
 
     raw_body = await request.body()
     headers = {k: v for k, v in request.headers.items()}
-    service = PaymentService(provider=provider)
-    event = service.handle_webhook(provider, headers, raw_body)
+    gw = get_payment_gateway(provider)
+    service = PaymentService(gateway=gw)
+    event = service.handle_webhook(headers, raw_body)
 
     # Deduplicate by event.id + body hash within tolerance
     try:
@@ -93,7 +95,8 @@ async def payments_webhook(provider: str, request: Request):
 
 @router.post("/intents", summary="Create payment", response_model=None)
 async def create_payment(payload: CreatePayment):
-    service = PaymentService(provider=payload.provider)
+    gw = get_payment_gateway(payload.provider)
+    service = PaymentService(gateway=gw)
     intent = await service.create_payment(payload)
     await service.aclose()
     return success_response(data=intent.model_dump(mode="json"), message="Payment created")
@@ -101,7 +104,8 @@ async def create_payment(payload: CreatePayment):
 
 @router.get("/intents/{order_id}", summary="Query payment")
 async def query_payment(order_id: str, provider: str | None = Query(default=None), provider_ref: str | None = Query(default=None)):
-    service = PaymentService(provider=provider)
+    gw = get_payment_gateway(provider)
+    service = PaymentService(gateway=gw)
     intent = await service.query_payment(QueryPayment(order_id=order_id, provider=provider, provider_ref=provider_ref))
     await service.aclose()
     return success_response(data=intent.model_dump(mode="json"), message="Payment status")
@@ -109,7 +113,8 @@ async def query_payment(order_id: str, provider: str | None = Query(default=None
 
 @router.post("/refunds", summary="Trigger refund")
 async def trigger_refund(payload: RefundRequest):
-    service = PaymentService(provider=payload.provider)
+    gw = get_payment_gateway(payload.provider)
+    service = PaymentService(gateway=gw)
     result = await service.refund(payload)
     await service.aclose()
     return success_response(data=result.model_dump(mode="json"), message="Refund triggered")
@@ -117,7 +122,8 @@ async def trigger_refund(payload: RefundRequest):
 
 @router.post("/intents/{order_id}/close", summary="Close payment")
 async def close_payment(order_id: str, provider: str | None = Query(default=None)):
-    service = PaymentService(provider=provider)
+    gw = get_payment_gateway(provider)
+    service = PaymentService(gateway=gw)
     from application.dtos.payments import ClosePayment as _Close
     await service.close_payment(_Close(order_id=order_id, provider=provider))
     await service.aclose()

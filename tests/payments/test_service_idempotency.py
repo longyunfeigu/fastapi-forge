@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from application.services.payment_service import PaymentService
 from application.dtos.payments import CreatePayment, RefundRequest, PaymentIntent, RefundResult, QueryPayment, ClosePayment, WebhookEvent
-from domain.services.payment_gateway import PaymentGateway
+from application.ports.payment_gateway import PaymentGateway
 
 
 class StubGateway(PaymentGateway):
@@ -41,4 +41,3 @@ async def test_refund_generates_idempotency_key(monkeypatch):
     assert req.idempotency_key is None
     await svc.refund(req)
     assert isinstance(req.idempotency_key, str) and len(req.idempotency_key) == 64
-

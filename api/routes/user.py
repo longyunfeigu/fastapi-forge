@@ -6,7 +6,7 @@ from typing import Any
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional
 
-from application.user_service import UserApplicationService
+from application.services.user_service import UserApplicationService
 from core.response import success_response, paginated_response, Response as ApiResponse, PaginatedData
 from application.dto import (
     UserCreateDTO, UserUpdateDTO, UserResponseDTO,

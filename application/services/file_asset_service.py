@@ -1,4 +1,4 @@
-"""Application layer orchestration for file asset lifecycle."""
+"""Application layer orchestration for file asset lifecycle (application/services)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

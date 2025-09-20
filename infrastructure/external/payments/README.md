@@ -2,8 +2,8 @@
 
 统一封装 Stripe / 微信支付 v3 / 支付宝 的可替换、可测试、可观测网关接口，遵循 DDD 分层：
 
-- domain：抽象协议、领域实体与状态机（不依赖具体 SDK）
-- application：用例编排（PaymentService），仅依赖 PaymentGateway 协议
+- application：端口协议（PaymentGateway）与用例编排（PaymentService）
+- domain：领域实体与状态机（不依赖具体 SDK）
 - infrastructure：各 Provider 适配器、签名与证书、HTTP 客户端、Webhook 解析
 - api：路由层，统一回调入口与去重、最小参数校验
 
@@ -332,7 +332,8 @@ router = APIRouter(prefix="/payments")
 @router.get("/stream/{order_id}")
 async def stream_status(order_id: str, provider: str | None = Query(None)):
     async def gen():
-        svc = PaymentService(provider=provider)
+        from infrastructure.external.payments import get_payment_gateway
+        svc = PaymentService(gateway=get_payment_gateway(provider))
         try:
             terminal = {"succeeded","failed","canceled"}
             while True:

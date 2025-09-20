@@ -14,7 +14,7 @@ from application.dto import (
     FileAssetDTO,
     FileAccessURLRequestDTO,
 )
-from application.file_asset_service import FileAssetApplicationService
+from application.services.file_asset_service import FileAssetApplicationService
 from core.response import (
     Response as ApiResponse,
     paginated_response,

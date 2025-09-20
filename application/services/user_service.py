@@ -1,5 +1,5 @@
 """
-用户应用服务 - 编排领域服务和处理应用逻辑
+用户应用服务（application/services）- 编排领域服务和处理应用逻辑
 """
 from typing import Optional, List, Callable, Tuple
 from datetime import datetime, timedelta, timezone
