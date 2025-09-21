@@ -9,6 +9,7 @@ from api.routes import user
 from api.routes import storage as storage_routes
 from api.routes import files as files_routes
 from api.routes import payments as payments_routes
+from api.routes import ws as ws_routes
 from api.middleware import RequestIDMiddleware, LoggingMiddleware
 from core.config import settings
 from core.exceptions import register_exception_handlers
@@ -25,6 +26,10 @@ from infrastructure.external.storage import (
     get_storage_config,
     StorageType
 )
+from application.services.realtime_service import RealtimeService
+from infrastructure.realtime.connection_manager import ConnectionManager
+from infrastructure.realtime.brokers.inmemory import InMemoryRealtimeBroker
+from infrastructure.realtime.brokers.redis import RedisRealtimeBroker
 
 
 # 获取logger
@@ -73,6 +78,25 @@ async def lifespan(app: FastAPI):
             "storage_init_failed",
             error=str(exc),
         )
+
+    # 初始化实时通信（WebSocket）
+    try:
+        # 选择 Broker：如果配置了 Redis 则使用 Redis，否则使用内存版
+        if settings.redis.url:
+            broker = RedisRealtimeBroker()
+            logger.info("realtime_broker_selected", provider="redis")
+        else:
+            broker = InMemoryRealtimeBroker()
+            logger.info("realtime_broker_selected", provider="inmemory")
+        conn_mgr = ConnectionManager()
+        realtime = RealtimeService(broker=broker, connections=conn_mgr)
+        await broker.subscribe(realtime.on_broker_event)
+        app.state.realtime_broker = broker
+        app.state.realtime_connections = conn_mgr
+        app.state.realtime_service = realtime
+        logger.info("realtime_initialized")
+    except Exception as exc:
+        logger.error("realtime_init_failed", error=str(exc))
     
     yield
     # 关闭时的清理工作
@@ -83,6 +107,15 @@ async def lifespan(app: FastAPI):
     # 关闭存储服务
     await shutdown_storage_client()
     logger.info("storage_shutdown", message="存储服务已关闭")
+    # 关闭实时通信
+    broker = getattr(app.state, "realtime_broker", None)
+    if broker is not None:
+        close = getattr(broker, "aclose", None)
+        if callable(close):
+            try:
+                await close()
+            except Exception:
+                pass
     logger.info("application_shutdown", message="应用关闭")
 
 
@@ -125,6 +158,7 @@ app.include_router(user.router, prefix="/api/v1")
 app.include_router(storage_routes.router, prefix="/api/v1")
 app.include_router(files_routes.router, prefix="/api/v1")
 app.include_router(payments_routes.router, prefix="/api/v1")
+app.include_router(ws_routes.router, prefix="/api/v1")
 
 
 # 根路径

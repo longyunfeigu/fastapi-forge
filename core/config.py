@@ -144,6 +144,13 @@ class Settings(BaseSettings):
     REDIS_LOCK_AUTO_RENEW_DEFAULT: bool = Field(default=False, env="REDIS_LOCK_AUTO_RENEW_DEFAULT")
     REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO: float = Field(default=0.6, env="REDIS_LOCK_AUTO_RENEW_INTERVAL_RATIO")
     REDIS_LOCK_AUTO_RENEW_JITTER_RATIO: float = Field(default=0.1, env="REDIS_LOCK_AUTO_RENEW_JITTER_RATIO")
+
+    # Realtime/WebSocket 配置
+    REALTIME_WS_SEND_QUEUE_MAX: int = Field(default=100, env="REALTIME_WS_SEND_QUEUE_MAX")
+    REALTIME_WS_SEND_OVERFLOW_POLICY: str = Field(
+        default="drop_oldest", env="REALTIME_WS_SEND_OVERFLOW_POLICY",
+        description="队列溢出策略: drop_oldest | drop_new | disconnect"
+    )
     
     # Kafka grouped settings (builder below)
     
