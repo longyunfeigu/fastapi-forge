@@ -225,6 +225,37 @@ REDIS_LOCK_AUTO_RENEW_JITTER_RATIO=0.1
 pytest tests/
 ```
 
+## 🔌 gRPC 接入
+
+本项目提供与 REST 并行的 gRPC 服务层（遵循 DDD：仅协议适配，复用 application/domain）。
+
+- 入口：`grpc_main.py`
+- 协议：`grpc_app/protos/forge/v1/*.proto`
+- 生成：`grpc_app/generated/forge/v1/*`
+
+生成协议代码（需要 `grpcio-tools`）：
+
+```bash
+bash scripts/gen_protos.sh
+```
+
+本地运行 gRPC：
+
+```bash
+export GRPC__ENABLED=true
+python grpc_main.py
+```
+
+Docker Compose（新增 `grpc` 服务，端口 50051；启动时会自动生成 stubs）：
+
+```bash
+docker-compose up -d grpc
+```
+
+认证：
+- 在 metadata 中传入 `authorization: Bearer <token>` 或 `access_token: <token>`。
+- 匿名 RPC：`Register`、`Login`、`Refresh`、`Health`。
+
 ## 📄 License
 
 MIT

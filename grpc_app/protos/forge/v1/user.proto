@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// User representation
+message User {
+  int32 id = 1;
+  string username = 2;
+  string email = 3;
+  string phone = 4;
+  string full_name = 5;
+  bool is_active = 6;
+  bool is_superuser = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  google.protobuf.Timestamp last_login = 10;
+}
+
+message UserReply {
+  User user = 1;
+}
+
+message RegisterRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+  string full_name = 4;
+  string phone = 5;
+}
+
+message LoginRequest {
+  string username = 1; // username or email supported by app layer
+  string password = 2;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message LoginReply {
+  string access_token = 1;
+  string refresh_token = 2;
+  string token_type = 3; // typically "bearer"
+  int32 expires_in = 4;  // seconds
+}
+
+message GetUserRequest {
+  int32 id = 1;
+}
+
+message ListUsersRequest {
+  int32 page = 1;       // 1-based
+  int32 page_size = 2;  // items per page
+  google.protobuf.BoolValue is_active = 3;   // optional filter
+}
+
+message ListUsersReply {
+  repeated User items = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message UpdateUserRequest {
+  int32 id = 1;
+  google.protobuf.StringValue full_name = 2;
+  google.protobuf.StringValue phone = 3;
+}
+
+message ChangePasswordRequest {
+  int32 id = 1;
+  string old_password = 2;
+  string new_password = 3;
+}
+
+message UserIdRequest {
+  int32 id = 1;
+}
+
+service UserService {
+  // Anonymous
+  rpc Register(RegisterRequest) returns (UserReply);
+  rpc Login(LoginRequest) returns (LoginReply);
+  rpc Refresh(RefreshRequest) returns (LoginReply);
+
+  // Authenticated
+  rpc GetUser(GetUserRequest) returns (UserReply);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersReply);
+  rpc UpdateUser(UpdateUserRequest) returns (UserReply);
+  rpc ChangePassword(ChangePasswordRequest) returns (google.protobuf.Empty);
+  rpc ActivateUser(UserIdRequest) returns (UserReply);
+  rpc DeactivateUser(UserIdRequest) returns (UserReply);
+  rpc DeleteUser(UserIdRequest) returns (google.protobuf.Empty);
+}

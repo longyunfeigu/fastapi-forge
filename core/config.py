@@ -7,6 +7,22 @@ from typing import Optional
 from pydantic import model_validator
 
 
+class GrpcTlsSettings(BaseModel):
+    enabled: bool = False
+    cert: Optional[str] = None
+    key: Optional[str] = None
+    ca: Optional[str] = None
+
+
+class GrpcSettings(BaseModel):
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 50051
+    # This maps to GRPC option grpc.max_concurrent_streams
+    max_concurrent_streams: int = 100
+    tls: GrpcTlsSettings = Field(default_factory=GrpcTlsSettings)
+
+
 class KafkaSettings(BaseModel):
     # Provider/driver
     provider: str = Field(default="kafka")
@@ -126,6 +142,9 @@ class Settings(BaseSettings):
     )
     
     storage: StorageSettings = Field(default_factory=StorageSettings)
+
+    # gRPC settings
+    grpc: GrpcSettings = Field(default_factory=GrpcSettings)
 
     # 分页配置（支持环境变量覆盖）
     DEFAULT_PAGE_SIZE: int = Field(default=20, env="DEFAULT_PAGE_SIZE")
