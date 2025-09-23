@@ -176,7 +176,7 @@ class Settings(BaseSettings):
     # pydantic-settings v2 configuration
     model_config = SettingsConfigDict(
         env_file=".env",
-        case_sensitive=True,
+        case_sensitive=False,
         extra="allow",
         env_nested_delimiter="__",
     )

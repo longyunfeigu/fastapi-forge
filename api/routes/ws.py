@@ -7,7 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 
 from application.services.realtime_service import RealtimeService
 from application.ports.realtime import Envelope
-from application.user_service import UserApplicationService
+from application.services.user_service import UserApplicationService
 from core.logging_config import get_logger
 from api.dependencies import get_user_service
 

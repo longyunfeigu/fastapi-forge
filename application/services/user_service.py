@@ -8,7 +8,7 @@ import jwt
 from domain.user.entity import User
 from domain.user.service import UserDomainService
 from domain.common.unit_of_work import AbstractUnitOfWork
-from .dto import (
+from application.dto import (
     UserCreateDTO, UserUpdateDTO, UserResponseDTO,
     LoginDTO, TokenDTO, ChangePasswordDTO
 )
