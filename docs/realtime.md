@@ -64,6 +64,13 @@
 
 实现位置：`infrastructure/realtime/connection_manager.py`。
 
+## 心跳与半开连接检测
+- API 层在 `api/routes/ws.py` 中实现了“空闲 ping + 超时关闭”的机制：
+  - 空闲 `REALTIME_WS_IDLE_PING_INTERVAL_S` 秒未收到任何消息，服务器发送 `{"type":"ping"}`。
+  - 发送后等待 `REALTIME_WS_PONG_GRACE_S` 秒，若未收到任意消息（包括 `pong` 或业务消息），记一次 miss。
+  - 连续 miss 超过 `REALTIME_WS_MISSED_PING_LIMIT` 次，服务器关闭连接（1001）。
+- 客户端建议：收到 `ping` 时回 `{"type":"pong"}`，或保持定期发送业务心跳。
+
 ## 多实例部署
 - 设置 `REDIS__URL` 后，系统自动使用 Redis Pub/Sub 广播（频道 `rt:room:{room}`），跨实例同步房间消息。
 - 未配置 Redis 时使用内存版（仅单实例）。
@@ -76,6 +83,11 @@ REALTIME_WS_SEND_OVERFLOW_POLICY=drop_oldest  # drop_oldest | drop_new | disconn
 
 # Redis（用于跨实例广播）
 REDIS__URL=redis://localhost:6379/0
+
+# 心跳/超时（处理半开连接）
+REALTIME_WS_IDLE_PING_INTERVAL_S=30
+REALTIME_WS_PONG_GRACE_S=10
+REALTIME_WS_MISSED_PING_LIMIT=2
 ```
 
 ## 客户端示例（浏览器）
@@ -103,4 +115,3 @@ ws.onmessage = (ev) => {
 - Connection Manager：infrastructure/realtime/connection_manager.py:1
 - Brokers：infrastructure/realtime/brokers/inmemory.py:1, .../redis.py:1
 - 装配：main.py:34
-

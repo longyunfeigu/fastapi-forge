@@ -170,6 +170,19 @@ class Settings(BaseSettings):
         default="drop_oldest", env="REALTIME_WS_SEND_OVERFLOW_POLICY",
         description="队列溢出策略: drop_oldest | drop_new | disconnect"
     )
+    # WS 心跳/超时配置（处理半开连接）
+    REALTIME_WS_IDLE_PING_INTERVAL_S: float = Field(
+        default=30.0, env="REALTIME_WS_IDLE_PING_INTERVAL_S",
+        description="空闲多久未收到消息则发送一次 ping（秒）"
+    )
+    REALTIME_WS_PONG_GRACE_S: float = Field(
+        default=10.0, env="REALTIME_WS_PONG_GRACE_S",
+        description="发送 ping 后等待 pong 或任意消息的宽限时间（秒）"
+    )
+    REALTIME_WS_MISSED_PING_LIMIT: int = Field(
+        default=2, env="REALTIME_WS_MISSED_PING_LIMIT",
+        description="连续多少次 ping 未收到响应后主动断开连接"
+    )
     
     # Kafka grouped settings (builder below)
     

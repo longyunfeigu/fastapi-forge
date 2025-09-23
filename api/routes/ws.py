@@ -1,7 +1,13 @@
-"""WebSocket routes for realtime features."""
+"""WebSocket routes for realtime features.
+
+Enhancements:
+- Add heartbeat/idle-timeout handling to detect half-open connections.
+- Server sends JSON ping on idle; closes after configurable missed pongs.
+"""
 from __future__ import annotations
 
 from typing import Any
+import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 
@@ -10,6 +16,7 @@ from application.ports.realtime import Envelope
 from application.services.user_service import UserApplicationService
 from core.logging_config import get_logger
 from api.dependencies import get_user_service
+from core.config import settings
 
 
 logger = get_logger(__name__)
@@ -66,8 +73,39 @@ async def websocket_endpoint(
     # Minimal presence state: connected (rooms handled by client join)
     await rt.connections.add(user_id, ws)
     try:
+        # Heartbeat/idle detection parameters (configurable via .env)
+        idle_ping_interval = float(getattr(settings, "REALTIME_WS_IDLE_PING_INTERVAL_S", 30.0))
+        pong_grace = float(getattr(settings, "REALTIME_WS_PONG_GRACE_S", 10.0))
+        missed_limit = int(getattr(settings, "REALTIME_WS_MISSED_PING_LIMIT", 2))
+
+        missed = 0
         while True:
-            msg = await ws.receive_json()
+            if idle_ping_interval and idle_ping_interval > 0:
+                try:
+                    msg = await asyncio.wait_for(ws.receive_json(), timeout=idle_ping_interval)
+                except asyncio.TimeoutError:
+                    # Idle: send ping and wait a short grace for response
+                    missed += 1
+                    try:
+                        await ws.send_json(Envelope(type="ping").model_dump())
+                    except Exception:
+                        # If send fails, treat as disconnected
+                        await ws.close(code=1001)
+                        break
+                    try:
+                        msg = await asyncio.wait_for(ws.receive_json(), timeout=pong_grace)
+                        # Received something after ping (pong or normal message)
+                        missed = 0
+                    except asyncio.TimeoutError:
+                        if missed > missed_limit:
+                            await ws.close(code=1001)
+                            break
+                        else:
+                            # Continue waiting; send next ping on next idle interval
+                            continue
+            else:
+                # Idle ping disabled: wait indefinitely for next message
+                msg = await ws.receive_json()
             mtype = str(msg.get("type") or "").lower()
             if mtype == "join":
                 room = str(msg.get("room") or "").strip()
@@ -95,6 +133,9 @@ async def websocket_endpoint(
                     await ws.send_json(Envelope(type="error", data={"message": "forbidden"}).model_dump())
             elif mtype == "ping":
                 await ws.send_json(Envelope(type="pong").model_dump())
+            elif mtype == "pong":
+                # Client heartbeat reply; nothing else to do.
+                continue
             else:
                 await ws.send_json(Envelope(type="error", data={"message": "unknown type"}).model_dump())
     except WebSocketDisconnect:
