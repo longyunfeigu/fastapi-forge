@@ -43,6 +43,7 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
         continuation: Callable[[grpc.HandlerCallDetails], Awaitable[grpc.RpcMethodHandler]],
         handler_call_details: grpc.HandlerCallDetails,
     ) -> grpc.RpcMethodHandler:
+        # 获取下游原始处理器
         handler = await continuation(handler_call_details)
         if handler is None:
             return handler
@@ -81,9 +82,15 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
                 return await handler.unary_unary(request, context)
             finally:
                 _current_user_id.reset(token_ctx)
-
+        """
+        unary-unary 指“单请求 → 单响应”的调用类型（一次只发送一个请求消息，收到一个响应消息）。对应 4 种基本形态中的第一种：
+        unary-unary: 单请求 → 单响应
+        unary-stream: 单请求 → 流式响应（服务端流）
+        stream-unary: 流式请求 → 单响应（客户端流）
+        stream-stream: 流式请求 → 流式响应（双向流）
+        """
         if handler.unary_unary:
-            return grpc.aio.unary_unary_rpc_method_handler(
+            return grpc.unary_unary_rpc_method_handler(
                 _unary_unary,
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,

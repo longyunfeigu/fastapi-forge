@@ -8,9 +8,7 @@ REST API客户端基类
 - 认证支持
 - 超时控制
 """
-import asyncio
 import json
-import logging
 from typing import Dict, Any, Optional, Union, Type, TypeVar
 from dataclasses import dataclass
 from enum import Enum
@@ -19,13 +17,7 @@ from pydantic import BaseModel
 from core.logging_config import get_logger
 from datetime import datetime
 
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)
+from httpx_retries import RetryTransport, Retry
 
 logger = get_logger(__name__)
 
@@ -118,15 +110,7 @@ class ServerError(APIError):
     pass
 
 
-class RetryableAPIError(APIError):
-    """可重试的API错误"""
-
-    def __init__(self, message: str, status_code: Optional[int], response: Optional['APIResponse'], retry_after: Optional[float] = None):
-        super().__init__(message=message, status_code=status_code, response=response, request_id=response.request_id if response else None)
-        self.retry_after = retry_after
-
-
-RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+# Retry logic is handled by httpx-retries transport
 
 
 class BaseAPIClient:
@@ -198,7 +182,8 @@ class BaseAPIClient:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.timeout),
                 verify=self.verify_ssl,
-                follow_redirects=True
+                follow_redirects=True,
+                transport=RetryTransport(retry=Retry(total=self.max_retries, backoff_factor=self.retry_delay)),
             )
         return self._client
     
@@ -369,54 +354,19 @@ class BaseAPIClient:
 
             self._log_response(api_response)
 
-            if api_response.is_error and api_response.status_code in RETRY_STATUS_CODES:
-                retry_after: Optional[float] = None
-                if api_response.status_code == 429:
-                    retry_header = api_response.headers.get("retry-after")
-                    try:
-                        if retry_header:
-                            retry_after = float(retry_header)
-                    except (TypeError, ValueError):
-                        retry_after = None
-                    if retry_after:
-                        await asyncio.sleep(retry_after)
-
-                raise RetryableAPIError(
-                    message=f"Transient API error with status {api_response.status_code}",
-                    status_code=api_response.status_code,
-                    response=api_response,
-                    retry_after=retry_after,
-                )
+            # Transient retryable responses are handled by httpx-retries transport
 
             if api_response.is_error:
                 self._handle_error_response(api_response.status_code, api_response)
 
             return api_response
 
-        retrying = AsyncRetrying(
-            reraise=True,
-            stop=stop_after_attempt(self.max_retries + 1),
-            wait=wait_exponential(
-                multiplier=self.retry_delay,
-                min=self.retry_delay,
-                max=self.retry_delay * 8
-            ),
-            retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError, RetryableAPIError)),
-            before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING)
-        )
-
         try:
-            async for attempt in retrying:
-                with attempt:
-                    return await _send_once()
+            return await _send_once()
         except httpx.TimeoutException as exc:
             raise APIError(f"Request timeout after {self.timeout}s") from exc
-        except httpx.NetworkError as exc:
+        except httpx.RequestError as exc:
             raise APIError(f"Network error: {exc}") from exc
-        except RetryableAPIError as exc:
-            if exc.response:
-                self._handle_error_response(exc.status_code or exc.response.status_code, exc.response)
-            raise APIError(exc.message) from exc
         except Exception as exc:
             logger.error(f"Unexpected error during API request: {exc}")
             raise APIError(f"Unexpected error: {exc}") from exc

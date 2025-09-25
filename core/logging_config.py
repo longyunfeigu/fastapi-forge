@@ -2,6 +2,7 @@
 Structlog 日志配置模块
 """
 import logging
+import json
 import structlog
 from structlog.processors import TimeStamper, add_log_level, JSONRenderer
 from structlog.dev import ConsoleRenderer
@@ -13,10 +14,15 @@ from core.config import settings
 
 
 def get_renderer() -> Any:
-    """根据环境选择渲染器 (Console in DEBUG, JSON otherwise)"""
+    """根据环境选择渲染器 (Console in DEBUG, JSON otherwise).
+    注意：structlog 会向 serializer 传入 default/sort_keys 等参数，需要适配。
+    """
     if settings.DEBUG:
         return ConsoleRenderer(colors=True)
-    return JSONRenderer()
+    # 定义 serializer，兼容 structlog 传入的关键字参数
+    def _dumps(obj, default=None, **kwargs):
+        return json.dumps(obj, ensure_ascii=False, default=default, **kwargs)
+    return JSONRenderer(serializer=_dumps)
 
 
 def configure_logging() -> None:

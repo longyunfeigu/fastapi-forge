@@ -9,12 +9,12 @@ from core.logging_config import get_logger
 import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 import random
 from typing import (
-    Any, Dict, List, Optional, Set, Tuple, TypeVar, Union,
-    Generic, Callable, AsyncGenerator
+    Any, Dict, List, Optional, Set, Tuple, Union,
+    Callable, AsyncGenerator
 )
 
 from redis import asyncio as aioredis
@@ -25,7 +25,6 @@ import socket
 
 logger = get_logger(__name__)
 
-T = TypeVar('T')
 
 
 # ============= 枚举和数据类 =============
@@ -315,9 +314,9 @@ class RedisClient(CacheInterface):
                 
                 for key, value in formatted_mapping.items():
                     if expire and expire > 0:
-                        await pipe.set(key, value, ex=expire)
+                        pipe.set(key, value, ex=expire)
                     else:
-                        await pipe.set(key, value)
+                        pipe.set(key, value)
                 
                 results = await pipe.execute()
                 
@@ -844,6 +843,7 @@ class RedisClient(CacheInterface):
                 if keys:
                     async with self._client.pipeline() as pipe:
                         for key in keys:
+                            # Async pipeline commands are enqueued synchronously; only execute() is awaited
                             pipe.delete(key)
                         results = await pipe.execute()
                         deleted_count += sum(results)
@@ -1012,6 +1012,43 @@ class RedisClient(CacheInterface):
         finally:
             await pubsub.unsubscribe(*formatted_channels)
             await pubsub.close()
+
+    async def psubscribe(self, pattern: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        模式订阅（psubscribe），返回消息生成器。
+
+        Args:
+            pattern: 频道匹配模式（支持通配符）
+
+        Yields:
+            接收到的消息字典
+        """
+        # 为 pattern 增加命名空间前缀
+        formatted_pattern = self._format_key(pattern)
+        pubsub = self._client.pubsub()
+
+        try:
+            await pubsub.psubscribe(formatted_pattern)
+
+            async for message in pubsub.listen():
+                if message['type'] in ('pmessage', 'message'):
+                    channel = message.get('channel')
+                    data = message.get('data')
+                    # 还原去掉命名空间前缀的频道名
+                    if isinstance(channel, str) and self._namespace and channel.startswith(f"{self._namespace}:"):
+                        channel = channel[len(self._namespace) + 1:]
+
+                    processed_message = {
+                        'channel': channel,
+                        'data': self._deserializer(data),
+                        'pattern': message.get('pattern')
+                    }
+                    yield processed_message
+        finally:
+            try:
+                await pubsub.punsubscribe(formatted_pattern)
+            finally:
+                await pubsub.close()
     
     async def health_check(self) -> bool:
         """健康检查"""
@@ -1275,24 +1312,3 @@ async def create_redis_client(
         enable_metrics=True,
         enable_logging=True
     )
-
-
-# ============= 导出接口 =============
-
-__all__ = [
-    # 主类
-    'RedisClient',
-    'CachePatterns',
-    'CacheInterface',
-    
-    # 枚举和数据类
-    'CacheStatus',
-    'RedisDataType',
-    'CacheMetrics',
-    
-    # 初始化和管理函数
-    'init_redis_client',
-    'get_redis_client',
-    'shutdown_redis_client',
-    'create_redis_client',
-]

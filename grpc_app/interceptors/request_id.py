@@ -47,7 +47,7 @@ class RequestIdInterceptor(grpc.aio.ServerInterceptor):
 
         # Only wrap the unary-unary case for now (current server only supports unary-unary in interceptors)
         if handler.unary_unary:
-            return grpc.aio.unary_unary_rpc_method_handler(
+            return grpc.unary_unary_rpc_method_handler(
                 _unary_unary,
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,

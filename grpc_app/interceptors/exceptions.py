@@ -1,16 +1,33 @@
 from __future__ import annotations
 
 from typing import Callable, Awaitable
+import contextvars
 
 import grpc
 
 from core.logging_config import get_logger
+from grpc_app.interceptors.request_id import get_request_id
 from domain.common.exceptions import BusinessException
 from core.exceptions import UnauthorizedException, TokenExpiredException
 from shared.codes import BusinessCode
 
 
 logger = get_logger(__name__)
+
+# Mark that the current request has been mapped to a gRPC status
+_mapped_error: contextvars.ContextVar[bool] = contextvars.ContextVar("grpc_mapped_error", default=False)
+
+def set_mapped_error() -> None:
+    try:
+        _mapped_error.set(True)
+    except Exception:
+        pass
+
+def is_mapped_error() -> bool:
+    try:
+        return bool(_mapped_error.get())
+    except Exception:
+        return False
 
 
 def _business_code_to_grpc_status(code: int) -> grpc.StatusCode:
@@ -44,6 +61,7 @@ def _business_code_to_grpc_status(code: int) -> grpc.StatusCode:
         BusinessCode.DATABASE_ERROR: grpc.StatusCode.INTERNAL,
         BusinessCode.NETWORK_ERROR: grpc.StatusCode.UNAVAILABLE,
     }
+
     return mapping.get(bc, grpc.StatusCode.FAILED_PRECONDITION)
 
 
@@ -66,12 +84,30 @@ class ExceptionMappingInterceptor(grpc.aio.ServerInterceptor):
                     ("x-biz-code", str(BusinessCode.TOKEN_EXPIRED.value)),
                     ("x-error-type", exc.error_type),
                 ))
+                set_mapped_error()
+                logger.error(
+                    "grpc_mapped_error",
+                    method=handler_call_details.method,
+                    code=str(BusinessCode.TOKEN_EXPIRED.value),
+                    status=str(grpc.StatusCode.UNAUTHENTICATED),
+                    message=exc.message,
+                    request_id=get_request_id(),
+                )
                 await context.abort(grpc.StatusCode.UNAUTHENTICATED, exc.message)
             except UnauthorizedException as exc:
                 context.set_trailing_metadata((
                     ("x-biz-code", str(BusinessCode.UNAUTHORIZED.value)),
                     ("x-error-type", exc.error_type),
                 ))
+                set_mapped_error()
+                logger.error(
+                    "grpc_mapped_error",
+                    method=handler_call_details.method,
+                    code=str(BusinessCode.UNAUTHORIZED.value),
+                    status=str(grpc.StatusCode.UNAUTHENTICATED),
+                    message=exc.message,
+                    request_id=get_request_id(),
+                )
                 await context.abort(grpc.StatusCode.UNAUTHENTICATED, exc.message)
             except BusinessException as exc:
                 status = _business_code_to_grpc_status(exc.code)
@@ -82,6 +118,16 @@ class ExceptionMappingInterceptor(grpc.aio.ServerInterceptor):
                     ))
                 except Exception:
                     pass
+                set_mapped_error()
+                # Concise business error log (no stack)
+                logger.error(
+                    "grpc_mapped_error",
+                    method=handler_call_details.method,
+                    code=str(exc.code),
+                    status=str(status),
+                    message=exc.message,
+                    request_id=get_request_id(),
+                )
                 await context.abort(status, exc.message)
             except Exception as exc:
                 try:
@@ -91,10 +137,19 @@ class ExceptionMappingInterceptor(grpc.aio.ServerInterceptor):
                     ))
                 except Exception:
                     pass
+                set_mapped_error()
+                logger.error(
+                    "grpc_mapped_error",
+                    method=handler_call_details.method,
+                    code=str(BusinessCode.SYSTEM_ERROR.value),
+                    status=str(grpc.StatusCode.INTERNAL),
+                    message=str(exc),
+                    request_id=get_request_id(),
+                )
                 await context.abort(grpc.StatusCode.INTERNAL, "系统内部错误")
 
         if handler.unary_unary:
-            return grpc.aio.unary_unary_rpc_method_handler(
+            return grpc.unary_unary_rpc_method_handler(
                 _unary_unary,
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,

@@ -70,8 +70,8 @@ async def websocket_endpoint(
     except Exception:
         await ws.close(code=1008)
         return
-    # Minimal presence state: connected (rooms handled by client join)
-    await rt.connections.add(user_id, ws)
+    # Handle connection through RealtimeService for consistent architecture
+    await rt.connect(user_id, ws, is_superuser=current_user.is_superuser)
     try:
         # Heartbeat/idle detection parameters (configurable via .env)
         idle_ping_interval = float(getattr(settings, "REALTIME_WS_IDLE_PING_INTERVAL_S", 30.0))
@@ -143,4 +143,4 @@ async def websocket_endpoint(
     except Exception as exc:
         logger.error("ws_error", user_id=user_id, error=str(exc), exc_info=True)
     finally:
-        await rt.connections.remove(user_id, ws)
+        await rt.disconnect(user_id, ws)

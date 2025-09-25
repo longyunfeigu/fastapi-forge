@@ -58,7 +58,7 @@ class AuthorizationInterceptor(grpc.aio.ServerInterceptor):
             return await handler.unary_unary(request, context)
 
         if handler.unary_unary:
-            return grpc.aio.unary_unary_rpc_method_handler(
+            return grpc.unary_unary_rpc_method_handler(
                 _unary_unary,
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,

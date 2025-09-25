@@ -65,6 +65,8 @@ message ListUsersReply {
   int32 page_size = 4;
 }
 
+// V2: 使用通用分页结构（common.PageMeta）和通用分页请求（common.PageRequest）
+
 message UpdateUserRequest {
   int32 id = 1;
   google.protobuf.StringValue full_name = 2;

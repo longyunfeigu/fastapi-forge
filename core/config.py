@@ -72,6 +72,18 @@ class KafkaSettings(BaseModel):
     retry_layers: Optional[str] = "retry.5s:5000,retry.1m:60000,retry.10m:600000"
     retry_dlq_suffix: str = "dlq"
 
+class RocketMQSettings(BaseModel):
+    # Connection endpoints (nameserver or proxy endpoints, comma-separated)
+    endpoints: str | None = None  # e.g., "127.0.0.1:9876"
+    # Topic used for realtime broadcast (single topic, all rooms inside payload)
+    topic: str | None = "rt_room_v1"
+    # Groups
+    producer_group: str | None = "rt-realtime-producer"
+    consumer_group: str | None = "rt-realtime-consumer"
+    # Optional credentials for cloud providers
+    access_key: str | None = None
+    secret_key: str | None = None
+
 
 class RedisSettings(BaseModel):
     url: Optional[str] = None
@@ -122,6 +134,7 @@ class Settings(BaseSettings):
     
     # 分组配置（方案A）：Kafka/Redis/Database/Storage 采用嵌套模型（外部类）
     kafka: KafkaSettings = Field(default_factory=KafkaSettings)
+    rocketmq: RocketMQSettings = Field(default_factory=RocketMQSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     
@@ -170,6 +183,8 @@ class Settings(BaseSettings):
         default="drop_oldest", env="REALTIME_WS_SEND_OVERFLOW_POLICY",
         description="队列溢出策略: drop_oldest | drop_new | disconnect"
     )
+    # 实时广播 Broker 选择：auto | inmemory | redis | kafka | rocketmq
+    REALTIME_BROKER: str = Field(default="auto", env="REALTIME_BROKER")
     # WS 心跳/超时配置（处理半开连接）
     REALTIME_WS_IDLE_PING_INTERVAL_S: float = Field(
         default=30.0, env="REALTIME_WS_IDLE_PING_INTERVAL_S",

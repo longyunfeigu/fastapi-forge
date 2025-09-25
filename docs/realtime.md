@@ -12,7 +12,9 @@
     - 连接管理：`infrastructure/realtime/connection_manager.py`（本进程内房间/连接表、广播）
     - 广播实现（Broker）：
       - 单机：`infrastructure/realtime/brokers/inmemory.py`
-      - 多实例：`infrastructure/realtime/brokers/redis.py`（Redis Pub/Sub）
+      - Redis：`infrastructure/realtime/brokers/redis.py`（Pub/Sub）
+      - Kafka：`infrastructure/realtime/brokers/kafka.py`（topic: `rt.room.<room>.v1`，支持 confluent-kafka / aiokafka）
+      - RocketMQ：`infrastructure/realtime/brokers/rocketmq.py`（topic: `rt_room_v1`，room 存在于消息体）
 - 装配：`main.py` lifespan 中初始化 broker + connection manager + service，并注册订阅回调。
 
 ## 连接与鉴权
@@ -72,8 +74,12 @@
 - 客户端建议：收到 `ping` 时回 `{"type":"pong"}`，或保持定期发送业务心跳。
 
 ## 多实例部署
-- 设置 `REDIS__URL` 后，系统自动使用 Redis Pub/Sub 广播（频道 `rt:room:{room}`），跨实例同步房间消息。
-- 未配置 Redis 时使用内存版（仅单实例）。
+- Redis：设置 `REDIS__URL` 后，使用 Redis Pub/Sub（频道 `rt:room:{room}`）。
+- Kafka：可在应用装配处选择 `KafkaRealtimeBroker`；支持 confluent（默认）或 aiokafka 驱动。
+  - 主题：`rt.room.<room>.v1`（按 room 维度分散）
+  - 订阅：正则 `^rt\.room\..*\.v1$`
+- RocketMQ：选择 `RocketMQRealtimeBroker`；单一 topic `rt_room_v1`，room 信息在 Envelope 中。
+- 未配置外部 Broker 时使用内存版（仅单实例）。
 
 ## 配置汇总（.env）
 ```
@@ -83,6 +89,18 @@ REALTIME_WS_SEND_OVERFLOW_POLICY=drop_oldest  # drop_oldest | drop_new | disconn
 
 # Redis（用于跨实例广播）
 REDIS__URL=redis://localhost:6379/0
+
+# Kafka（可选）
+KAFKA__BOOTSTRAP_SERVERS=localhost:9092
+KAFKA__CLIENT_ID=app-messaging
+# 驱动：confluent 或 aiokafka（默认 confluent）
+KAFKA__DRIVER=confluent
+
+# RocketMQ（可选）
+ROCKETMQ__ENDPOINTS=127.0.0.1:9876
+ROCKETMQ__TOPIC=rt_room_v1
+ROCKETMQ__PRODUCER_GROUP=rt-realtime-producer
+ROCKETMQ__CONSUMER_GROUP=rt-realtime-consumer
 
 # 心跳/超时（处理半开连接）
 REALTIME_WS_IDLE_PING_INTERVAL_S=30

@@ -28,8 +28,12 @@ from infrastructure.external.storage import (
 )
 from application.services.realtime_service import RealtimeService
 from infrastructure.realtime.connection_manager import ConnectionManager
-from infrastructure.realtime.brokers.inmemory import InMemoryRealtimeBroker
-from infrastructure.realtime.brokers.redis import RedisRealtimeBroker
+from infrastructure.realtime.brokers import (
+    InMemoryRealtimeBroker,
+    RedisRealtimeBroker,
+    KafkaRealtimeBroker,
+    RocketMQRealtimeBroker,
+)
 
 
 # 获取logger
@@ -81,11 +85,33 @@ async def lifespan(app: FastAPI):
 
     # 初始化实时通信（WebSocket）
     try:
-        # 选择 Broker：如果配置了 Redis 则使用 Redis，否则使用内存版
-        if settings.redis.url:
-            broker = RedisRealtimeBroker()
-            logger.info("realtime_broker_selected", provider="redis")
-        else:
+        # 选择 Broker：根据 REALTIME_BROKER，默认 auto -> redis(if url) else inmemory
+        provider = (settings.REALTIME_BROKER or "auto").lower()
+        broker = None
+        if provider == "kafka":
+            try:
+                if KafkaRealtimeBroker is None:
+                    raise RuntimeError("Kafka broker not available (missing dependency)")
+                broker = KafkaRealtimeBroker()
+                logger.info("realtime_broker_selected", provider="kafka")
+            except Exception as exc:
+                logger.error("realtime_broker_init_failed", provider="kafka", error=str(exc))
+        elif provider == "rocketmq":
+            try:
+                if RocketMQRealtimeBroker is None:
+                    raise RuntimeError("RocketMQ broker not available (missing dependency)")
+                broker = RocketMQRealtimeBroker()
+                logger.info("realtime_broker_selected", provider="rocketmq")
+            except Exception as exc:
+                logger.error("realtime_broker_init_failed", provider="rocketmq", error=str(exc))
+        elif provider == "redis" or provider == "auto":
+            if settings.redis.url:
+                broker = RedisRealtimeBroker()
+                logger.info("realtime_broker_selected", provider="redis")
+            elif provider == "redis":
+                logger.warning("realtime_broker_redis_missing_url", message="REDIS__URL 未配置，回退到内存版")
+        # 回退：内存版
+        if broker is None:
             broker = InMemoryRealtimeBroker()
             logger.info("realtime_broker_selected", provider="inmemory")
         conn_mgr = ConnectionManager()

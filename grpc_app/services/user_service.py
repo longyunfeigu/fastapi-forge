@@ -67,6 +67,7 @@ class UserService(user_pb2_grpc.UserServiceServicer):
             page_size=size,
         )
 
+
     async def UpdateUser(self, request: user_pb2.UpdateUserRequest, context: grpc.aio.ServicerContext) -> user_pb2.UserReply:  # type: ignore[override]
         update_dto = UserUpdateDTO(
             full_name=request.full_name.value if request.HasField("full_name") else None,
@@ -93,4 +94,3 @@ class UserService(user_pb2_grpc.UserServiceServicer):
     async def DeleteUser(self, request: user_pb2.UserIdRequest, context: grpc.aio.ServicerContext) -> Empty:  # type: ignore[override]
         await self._svc.delete_user(int(request.id))
         return Empty()
-

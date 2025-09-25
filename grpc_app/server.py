@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Sequence
+import os
+import sys
 import grpc
 from grpc_health.v1 import health, health_pb2_grpc, health_pb2
 
@@ -11,8 +13,16 @@ from grpc_app.interceptors.logging import LoggingInterceptor
 from grpc_app.interceptors.exceptions import ExceptionMappingInterceptor
 from grpc_app.interceptors.auth import AuthInterceptor
 from grpc_app.interceptors.authorization import AuthorizationInterceptor
+# Ensure generated root is importable as top-level package `forge`
+# so that generated imports like `from forge.v1 import user_pb2` work.
+_gen_root = os.path.join(os.path.dirname(__file__), "generated")
+if _gen_root not in sys.path:
+    sys.path.insert(0, _gen_root)
+
 from grpc_app.generated.forge.v1 import user_pb2_grpc
+from grpc_app.generated.forge.v1 import profile_pb2_grpc
 from grpc_app.services.user_service import UserService
+from grpc_app.services.profile_service import ProfileService
 
 
 logger = get_logger(__name__)
@@ -34,12 +44,14 @@ async def create_server() -> grpc.aio.Server:
 
     # Register services
     user_pb2_grpc.add_UserServiceServicer_to_server(UserService(), server)
+    profile_pb2_grpc.add_ProfileServiceServicer_to_server(ProfileService(), server)
 
     # Health service
     health_svc = health.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_svc, server)
     health_svc.set("", health_pb2.HealthCheckResponse.SERVING)
     health_svc.set("forge.v1.UserService", health_pb2.HealthCheckResponse.SERVING)
+    health_svc.set("forge.v1.ProfileService", health_pb2.HealthCheckResponse.SERVING)
 
     # Bind address
     address = f"{settings.grpc.host}:{settings.grpc.port}"
