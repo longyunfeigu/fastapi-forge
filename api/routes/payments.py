@@ -18,6 +18,7 @@ from application.dtos.payments import (
     QueryPayment,
 )
 from core.response import success_response
+from core.i18n import t
 from core.logging_config import get_logger
 from core.settings import payment_settings
 from infrastructure.external.cache import get_redis_client
@@ -35,10 +36,10 @@ async def payments_webhook(provider: str, request: Request):
     ct = (request.headers.get("content-type") or "").lower()
     if provider.lower() == "alipay":
         if "application/x-www-form-urlencoded" not in ct:
-            return success_response(message="Unsupported Content-Type for Alipay webhook")
+            return success_response(message=t("payments.webhook.content_type.unsupported_alipay"))
     else:
         if "application/json" not in ct:
-            return success_response(message="Unsupported Content-Type for JSON webhook")
+            return success_response(message=t("payments.webhook.content_type.unsupported_json"))
 
     # Optional IP allowlist
     allowlist = payment_settings.webhook.ip_allowlist or []
@@ -60,9 +61,9 @@ async def payments_webhook(provider: str, request: Request):
                 except Exception:
                     continue
             if not permitted:
-                return success_response(message="IP not allowed for webhook")
+                return success_response(message=t("payments.webhook.ip_not_allowed"))
         except Exception:
-            return success_response(message="Invalid remote IP")
+            return success_response(message=t("payments.webhook.invalid_remote_ip"))
 
     raw_body = await request.body()
     headers = {k: v for k, v in request.headers.items()}
@@ -81,15 +82,18 @@ async def payments_webhook(provider: str, request: Request):
             logger.info("webhook_duplicate_ignored", provider=provider, event_id=event.id)
             return success_response(
                 data={"id": event.id, "type": event.type, "provider": event.provider, "duplicate": True},
-                message="Duplicate webhook ignored",
+                message=t("payments.webhook.duplicate_ignored"),
             )
     except Exception as exc:  # pragma: no cover
         logger.error("webhook_dedupe_failed", provider=provider, error=str(exc))
+        # Prefer returning 5xx so provider retries; safer than acking duplicates silently
+        from fastapi import HTTPException as _HTTPExc
+        raise _HTTPExc(status_code=500, detail=t("payments.webhook.dedupe_failed"))
 
     # Return 200 to acknowledge receipt per provider conventions
     return success_response(
         data={"id": event.id, "type": event.type, "provider": event.provider},
-        message="Webhook received",
+        message=t("payments.webhook.received"),
     )
 
 
@@ -99,7 +103,7 @@ async def create_payment(payload: CreatePayment):
     service = PaymentService(gateway=gw)
     intent = await service.create_payment(payload)
     await service.aclose()
-    return success_response(data=intent.model_dump(mode="json"), message="Payment created")
+    return success_response(data=intent.model_dump(mode="json"), message=t("payments.intent.created"))
 
 
 @router.get("/intents/{order_id}", summary="Query payment")
@@ -108,7 +112,7 @@ async def query_payment(order_id: str, provider: str | None = Query(default=None
     service = PaymentService(gateway=gw)
     intent = await service.query_payment(QueryPayment(order_id=order_id, provider=provider, provider_ref=provider_ref))
     await service.aclose()
-    return success_response(data=intent.model_dump(mode="json"), message="Payment status")
+    return success_response(data=intent.model_dump(mode="json"), message=t("payments.intent.status"))
 
 
 @router.post("/refunds", summary="Trigger refund")
@@ -117,7 +121,7 @@ async def trigger_refund(payload: RefundRequest):
     service = PaymentService(gateway=gw)
     result = await service.refund(payload)
     await service.aclose()
-    return success_response(data=result.model_dump(mode="json"), message="Refund triggered")
+    return success_response(data=result.model_dump(mode="json"), message=t("payments.refund.triggered"))
 
 
 @router.post("/intents/{order_id}/close", summary="Close payment")
@@ -127,4 +131,4 @@ async def close_payment(order_id: str, provider: str | None = Query(default=None
     from application.dtos.payments import ClosePayment as _Close
     await service.close_payment(_Close(order_id=order_id, provider=provider))
     await service.aclose()
-    return success_response(message="Payment closed", data={"order_id": order_id, "provider": provider})
+    return success_response(message=t("payments.intent.closed"), data={"order_id": order_id, "provider": provider})

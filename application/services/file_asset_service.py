@@ -9,6 +9,7 @@ from domain.common.unit_of_work import AbstractUnitOfWork
 from domain.common.exceptions import (
     FileAssetNotFoundException,
     FileAssetAlreadyDeletedException,
+    DomainValidationException,
 )
 from application.dto import (
     FileAssetDTO,
@@ -18,6 +19,8 @@ from application.dto import (
 from application.ports.storage import StoragePort
 from application.ports.storage import PresignedURL, StorageInfo
 from application.utils.storage import build_storage_key, guess_content_type
+from core.config import settings
+from domain.common.exceptions import UnsupportedMimeTypeException, FileTooLargeException, InvalidFileNameException
 from os.path import splitext
 
 
@@ -259,18 +262,47 @@ class FileAssetApplicationService:
 
         method = method or "PUT"
         if method not in {"PUT", "POST"}:
-            raise ValueError("method must be PUT or POST")
+            raise DomainValidationException(
+                "Invalid upload method",
+                field="method",
+                details={"method": method},
+                message_key="storage.method.invalid",
+            )
 
-        _, ext = splitext(filename or "")
-        content_type = mime_type or guess_content_type(filename or "upload.bin")
+        # Basic validations
+        fname = filename or "upload.bin"
+        if len(fname) > 255:
+            raise InvalidFileNameException(fname, max_len=255)
+
+        _, ext = splitext(fname)
+        content_type = mime_type or guess_content_type(fname)
+
+        # Check allowed MIME types (presign context)
+        allowed_types = getattr(settings.storage, "presign_content_types", None)
+        if allowed_types and content_type and content_type not in allowed_types:
+            raise UnsupportedMimeTypeException(content_type)
+
+        # Check presign size limit
+        presign_max = int(getattr(settings.storage, "presign_max_size", 0) or 0)
+        if presign_max and size_bytes and size_bytes > presign_max:
+            raise FileTooLargeException(size=size_bytes, max_size=presign_max)
         key = build_storage_key(kind=kind, user_id=str(user_id), ext=ext)
 
-        presigned: PresignedURL = await self._storage.generate_presigned_url(
-            key=key,
-            expires_in=expires_in,
-            method=method,
-            content_type=content_type,
-        )
+        try:
+            presigned: PresignedURL = await self._storage.generate_presigned_url(
+                key=key,
+                expires_in=expires_in,
+                method=method,
+                content_type=content_type,
+            )
+        except ValueError as exc:
+            # Normalize to domain-level validation error for i18n handling
+            raise DomainValidationException(
+                "Validation failed",
+                details={"reason": str(exc)},
+                message_key="validation.failed",
+                format_params={"reason": str(exc)},
+            ) from exc
 
         info: StorageInfo = self._storage.info()
         file_summary = await self.create_pending_asset(
@@ -308,6 +340,15 @@ class FileAssetApplicationService:
 
         _, ext = splitext(filename or "")
         ctype = content_type or guess_content_type(filename or "")
+
+        # Optional validation for relay uploads (based on storage validation settings)
+        if getattr(settings.storage, "validation_enabled", False):
+            max_size = int(getattr(settings.storage, "max_file_size", 0) or 0)
+            if max_size and len(file_bytes) > max_size:
+                raise FileTooLargeException(size=len(file_bytes), max_size=max_size)
+            allowed = getattr(settings.storage, "allowed_types", None)
+            if allowed and ctype and ctype not in allowed:
+                raise UnsupportedMimeTypeException(ctype)
         key = build_storage_key(kind=kind, user_id=str(user_id), ext=ext)
 
         # Upload to storage

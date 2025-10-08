@@ -98,6 +98,16 @@ repos:
       - id: hadolint-docker
         args: [--ignore, DL3008, --ignore, DL3013]
 
+  # Local: validate PO files syntax (i18n)
+  - repo: local
+    hooks:
+      - id: validate-po-syntax
+        name: Validate .po files syntax
+        entry: python scripts/validate_po.py
+        language: system
+        pass_filenames: false
+        stages: [commit]
+
 # Configuration for specific runs
 default_language_version:
   python: python3.11

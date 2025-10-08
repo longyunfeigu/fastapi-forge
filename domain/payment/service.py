@@ -19,8 +19,10 @@ class PaymentAlreadyExistsException(BusinessException):
     def __init__(self, order_id: str):
         super().__init__(
             code=20100,
-            message=f"订单 {order_id} 已存在支付记录",
-            error_type="PAYMENT_ALREADY_EXISTS"
+            message=f"Payment for order {order_id} already exists",
+            error_type="PAYMENT_ALREADY_EXISTS",
+            details={"order_id": order_id},
+            message_key="payment.already_exists",
         )
 
 
@@ -29,8 +31,10 @@ class PaymentNotFoundException(BusinessException):
     def __init__(self, identifier: str):
         super().__init__(
             code=20101,
-            message=f"支付记录不存在: {identifier}",
-            error_type="PAYMENT_NOT_FOUND"
+            message=f"Payment not found: {identifier}",
+            error_type="PAYMENT_NOT_FOUND",
+            details={"id": identifier},
+            message_key="payment.not_found",
         )
 
 
@@ -39,8 +43,11 @@ class RefundExceedsPaymentException(BusinessException):
     def __init__(self, refund_amount: Decimal, available: Decimal):
         super().__init__(
             code=20102,
-            message=f"退款金额 {refund_amount} 超过可退金额 {available}",
-            error_type="REFUND_EXCEEDS_PAYMENT"
+            message="Refund exceeds available",
+            error_type="REFUND_EXCEEDS_PAYMENT",
+            details={"refund_amount": str(refund_amount), "available": str(available)},
+            message_key="payment.refund.exceeds",
+            format_params={"refund_amount": str(refund_amount), "available": str(available)},
         )
 
 
@@ -49,8 +56,11 @@ class PaymentNotRefundableException(BusinessException):
     def __init__(self, status: PaymentStatus):
         super().__init__(
             code=20103,
-            message=f"支付状态为 {status}，不可退款",
-            error_type="PAYMENT_NOT_REFUNDABLE"
+            message="Payment is not refundable",
+            error_type="PAYMENT_NOT_REFUNDABLE",
+            details={"status": status.name if hasattr(status, "name") else str(status)},
+            message_key="payment.not_refundable",
+            format_params={"status": status.name if hasattr(status, "name") else str(status)},
         )
 
 

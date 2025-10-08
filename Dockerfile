@@ -64,6 +64,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Expose ports (HTTP + gRPC)
 EXPOSE 8000 50051
 
+# Compile translations if available (non-fatal when locales are missing)
+RUN pybabel --version >/dev/null 2>&1 && pybabel compile -d locales || true
+
 # Default command (can be overridden in docker-compose)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
 
@@ -85,6 +88,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 USER appuser
+
+# Compile translations in development stage as well
+RUN pybabel --version >/dev/null 2>&1 && pybabel compile -d locales || true
 
 # Enable hot reload for development
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

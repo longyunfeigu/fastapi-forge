@@ -16,6 +16,7 @@ from application.ports.realtime import Envelope
 from application.services.user_service import UserApplicationService
 from application.services.token_service import TokenService
 from core.logging_config import get_logger
+from core.i18n import t, get_locale, set_locale
 from api.dependencies import get_user_service, get_token_service
 from core.config import settings
 
@@ -51,6 +52,15 @@ async def websocket_endpoint(
     token_service: TokenService = Depends(get_token_service),
 ) -> None:
     await ws.accept()
+    # Parse locale for WS (since LocaleMiddleware doesn't run for websockets)
+    ws_lang = ws.query_params.get("lang") or ws.headers.get("X-Lang") or ""
+    if not ws_lang:
+        al = ws.headers.get("Accept-Language") or ""
+        if al:
+            # naive parse: take first tag
+            ws_lang = al.split(",")[0].strip()
+    if ws_lang:
+        set_locale(ws_lang)
     # Authenticate
     token = _extract_token(ws)
     if not token:
@@ -112,12 +122,26 @@ async def websocket_endpoint(
             if mtype == "join":
                 room = str(msg.get("room") or "").strip()
                 if not room:
-                    await ws.send_json(Envelope(type="error", data={"message": "room required"}).model_dump())
+                    await ws.send_json(Envelope(
+                        type="error",
+                        data={
+                            "message": t("ws.error.room_required"),
+                            "message_key": "ws.error.room_required",
+                            "locale": get_locale(),
+                        },
+                    ).model_dump())
                     continue
                 try:
                     await rt.join_room(user_id, room, ws, is_superuser=current_user.is_superuser)
                 except PermissionError:
-                    await ws.send_json(Envelope(type="error", data={"message": "forbidden"}).model_dump())
+                    await ws.send_json(Envelope(
+                        type="error",
+                        data={
+                            "message": t("ws.error.forbidden"),
+                            "message_key": "ws.error.forbidden",
+                            "locale": get_locale(),
+                        },
+                    ).model_dump())
             elif mtype == "leave":
                 room = str(msg.get("room") or "").strip()
                 if room:
@@ -132,14 +156,28 @@ async def websocket_endpoint(
                 try:
                     await rt.send_message(user_id, room, payload, is_superuser=current_user.is_superuser)
                 except PermissionError:
-                    await ws.send_json(Envelope(type="error", data={"message": "forbidden"}).model_dump())
+                    await ws.send_json(Envelope(
+                        type="error",
+                        data={
+                            "message": t("ws.error.forbidden"),
+                            "message_key": "ws.error.forbidden",
+                            "locale": get_locale(),
+                        },
+                    ).model_dump())
             elif mtype == "ping":
                 await ws.send_json(Envelope(type="pong").model_dump())
             elif mtype == "pong":
                 # Client heartbeat reply; nothing else to do.
                 continue
             else:
-                await ws.send_json(Envelope(type="error", data={"message": "unknown type"}).model_dump())
+                await ws.send_json(Envelope(
+                    type="error",
+                    data={
+                        "message": t("ws.error.unknown_type"),
+                        "message_key": "ws.error.unknown_type",
+                        "locale": get_locale(),
+                    },
+                ).model_dump())
     except WebSocketDisconnect:
         logger.info("ws_disconnected", user_id=user_id)
     except Exception as exc:

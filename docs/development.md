@@ -239,6 +239,70 @@ def test_long_running():
 
 ---
 
+## 国际化开发指南（i18n）
+
+本项目采用 gettext + Babel 的国际化方案，遵循“分层职责清晰”的原则：
+
+- Domain/应用层：只产生“消息键 + 参数”（不拼自然语言）。
+- API/任务：根据当前 locale 翻译键为最终文本（`core.i18n.t()`），将文本放入响应或通知。
+- 翻译资源：`locales/<lang>/LC_MESSAGES/messages.po|mo`。
+
+### 运行时语言选择
+
+解析优先级：`?lang=xx` > `X-Lang` > `Accept-Language` > 默认 `en`。语言由 `api/middleware/locale.py` 写入 `ContextVar`，使用 `core.i18n.get_locale()` 可读取。
+
+### 在代码中使用
+
+```python
+from core.i18n import t
+
+# 成功消息
+msg = t("user.register.success")
+
+# 动态参数
+msg = t("user.sessions.list.success", count=3)
+```
+
+业务异常建议携带 `message_key` 与 `details`，由 API handler 统一翻译：
+
+```python
+from domain.common.exceptions import BusinessException
+raise BusinessException(code=..., message="User not found", message_key="user.not_found", details={"user_id": 1})
+```
+
+### Babel 工具链
+
+配置文件：`babel.cfg`
+
+常用命令：
+
+```bash
+# 抽取可翻译字符串到模板
+pybabel extract -F babel.cfg -o locales/messages.pot .
+
+# 初始化语言（仅首次）
+pybabel init -i locales/messages.pot -d locales -l en
+pybabel init -i locales/messages.pot -d locales -l zh_Hans
+
+# 翻译后编译（生成 .mo）
+pybabel compile -d locales
+
+# 更新已有语言（当新增/修改了键）
+pybabel update -i locales/messages.pot -d locales
+```
+
+### 质量与校验
+
+- Pre-commit 已加入 `.po` 语法校验：`scripts/validate_po.py` 使用 `polib` 解析所有 `.po`。
+- CI/本地均可运行：`pre-commit run --all-files`。
+
+### 翻译规范
+
+- 使用稳定的“键名”作为消息 ID（如 `user.register.success`），避免英文原文作为 ID。
+- 字符串参数使用 `{name}` 占位，不要字符串拼接。
+- 日志不做国际化，避免影响检索与排查。
+
+
 ## 数据库迁移
 
 ### 创建新迁移

@@ -30,3 +30,4 @@ grpcio-tools>=1.58,<2
 grpcio-health-checking>=1.58,<2
 googleapis-common-protos>=1.60,<2
 httpx-retries>=0.3,<1
+Babel>=2.12.0

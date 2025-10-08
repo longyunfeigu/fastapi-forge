@@ -22,6 +22,7 @@ from core.response import (
     success_response,
 )
 from core.config import settings
+from core.i18n import t
 
 router = APIRouter(
     prefix="/files",
@@ -94,7 +95,7 @@ async def get_file_detail(
 ):
     asset = await service.get_asset_raw(asset_id)
     if not current_user.is_superuser and asset.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权查看该文件")
+        raise HTTPException(status_code=403, detail=t("file.permission.denied.view"))
     dto = FileAssetDTO.model_validate(asset)
     if signed:
         fname = filename or dto.original_filename or f"file-{dto.id}"
@@ -106,7 +107,7 @@ async def get_file_detail(
             disposition_mode="inline",
         )
         dto.url = str(access.get("url", ""))
-    return success_response(dto, message="OK")
+    return success_response(dto, message=t("ok"))
 
 
 # Controller no longer handles storage orchestration; use service methods instead.
@@ -125,14 +126,14 @@ async def generate_preview_url(
 ):
     asset = await service.get_asset_raw(asset_id)
     if not current_user.is_superuser and asset.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权访问该文件")
+        raise HTTPException(status_code=403, detail=t("file.permission.denied.access"))
     data = await service.generate_access_url_for_asset(
         asset=asset,
         expires_in=payload.expires_in,
         filename=payload.filename,
         disposition_mode="inline",
     )
-    return success_response(data, message="OK")
+    return success_response(data, message=t("ok"))
 
 
 @router.post(
@@ -148,14 +149,14 @@ async def generate_download_url(
 ):
     asset = await service.get_asset_raw(asset_id)
     if not current_user.is_superuser and asset.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权访问该文件")
+        raise HTTPException(status_code=403, detail=t("file.permission.denied.access"))
     data = await service.generate_access_url_for_asset(
         asset=asset,
         expires_in=payload.expires_in,
         filename=payload.filename,
         disposition_mode="attachment",
     )
-    return success_response(data, message="OK")
+    return success_response(data, message=t("ok"))
 
 
 @router.delete(
@@ -170,10 +171,7 @@ async def delete_file(
 ):
     asset = await service.get_asset_raw(asset_id)
     if not current_user.is_superuser and asset.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权删除该文件")
+        raise HTTPException(status_code=403, detail=t("file.permission.denied.delete"))
 
     updated = await service.soft_delete(asset_id)
-    return success_response(
-        {"deleted": True, "status": updated.status},
-        message="文件已标记删除",
-    )
+    return success_response({"deleted": True, "status": updated.status}, message=t("file.delete.soft.success"))

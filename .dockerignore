@@ -124,6 +124,9 @@ static/
 scripts/
 examples/
 
+# Do not send compiled translation binaries in build context
+*.mo
+
 # Agent docs
 AGENTS.md
 CLAUDE.md

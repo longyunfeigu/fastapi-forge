@@ -13,6 +13,7 @@ from application.dto import UserResponseDTO
 from infrastructure.unit_of_work import SQLAlchemyUnitOfWork
 from infrastructure.external.storage import get_storage
 from infrastructure.adapters.storage_port import StorageProviderPortAdapter
+from core.i18n import t
 
 # OAuth2 password bearer for Swagger UI
 oauth2_scheme = OAuth2PasswordBearer(
@@ -45,7 +46,7 @@ async def get_token(
     
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="未提供认证凭据",
+        detail=t("auth.credentials.missing"),
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -75,7 +76,7 @@ async def get_current_user(
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的认证凭据",
+            detail=t("auth.credentials.invalid"),
             headers={"WWW-Authenticate": "Bearer"},
         )
     return await service.get_user(user_id)
@@ -88,7 +89,7 @@ async def get_current_active_user(
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="用户账户已被停用"
+            detail=t("user.inactive"),
         )
     return current_user
 
@@ -100,6 +101,6 @@ async def get_current_superuser(
     if not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要超级管理员权限"
+            detail=t("auth.superuser.required"),
         )
     return current_user

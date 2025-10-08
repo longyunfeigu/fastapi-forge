@@ -21,6 +21,7 @@ bandit[toml]==1.7.8
 
 # Pre-commit hooks
 pre-commit==3.7.0
+polib==1.2.0
 
 # Testing enhancements
 pytest-cov==5.0.0

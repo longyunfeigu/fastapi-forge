@@ -11,9 +11,11 @@ from api.routes import files as files_routes
 from api.routes import payments as payments_routes
 from api.routes import ws as ws_routes
 from api.middleware import RequestIDMiddleware, LoggingMiddleware
+from api.middleware.locale import LocaleMiddleware
 from core.config import settings
 from core.exceptions import register_exception_handlers
 from core.response import success_response
+from core.i18n import t
 from core.logging_config import get_logger, configure_logging
 from infrastructure.database import create_tables
 from infrastructure.external.cache import (
@@ -47,16 +49,16 @@ async def lifespan(app: FastAPI):
     # 启动时创建数据库表（仅开发环境）。生产应使用 Alembic 迁移
     if settings.DEBUG:
         await create_tables()
-        logger.info("database_initialized", message="数据库表创建完成 (development)")
+        logger.info("database_initialized", message="Database tables created (development)")
     else:
         logger.info(
             "database_migrations_required",
-            message="生产环境不自动建表，请使用 Alembic 迁移 (alembic upgrade head)"
+            message="No auto-create in production, use Alembic migrations (alembic upgrade head)"
         )
     if settings.redis.url:
         try:
             await init_redis_client()
-            logger.info("redis_cache_initialized", message="Redis缓存初始化完成")
+            logger.info("redis_cache_initialized", message="Redis cache initialized")
         except Exception as exc:
             logger.error(
                 "redis_cache_init_failed",
@@ -69,7 +71,7 @@ async def lifespan(app: FastAPI):
         config = get_storage_config()
         logger.info(
             "storage_initialized",
-            message="存储服务初始化完成",
+            message="Storage service initialized",
             provider=config.type,
             bucket=config.bucket,
         )
@@ -77,7 +79,7 @@ async def lifespan(app: FastAPI):
         from infrastructure.external.storage import get_storage_client
         storage = get_storage_client()
         if storage and await storage.health_check():
-            logger.info("storage_health_check_passed", message="存储服务健康检查通过")
+            logger.info("storage_health_check_passed", message="Storage health check passed")
     except Exception as exc:
         logger.error(
             "storage_init_failed",
@@ -110,7 +112,7 @@ async def lifespan(app: FastAPI):
                 broker = RedisRealtimeBroker()
                 logger.info("realtime_broker_selected", provider="redis")
             elif provider == "redis":
-                logger.warning("realtime_broker_redis_missing_url", message="REDIS__URL 未配置，回退到内存版")
+                logger.warning("realtime_broker_redis_missing_url", message="REDIS__URL not set, falling back to in-memory broker")
         # 回退：内存版
         if broker is None:
             broker = InMemoryRealtimeBroker()
@@ -129,11 +131,11 @@ async def lifespan(app: FastAPI):
     # 关闭时的清理工作
     if settings.redis.url:
         await shutdown_redis_client()
-        logger.info("redis_cache_shutdown", message="Redis缓存已关闭")
+        logger.info("redis_cache_shutdown", message="Redis cache shutdown")
     
     # 关闭存储服务
     await shutdown_storage_client()
-    logger.info("storage_shutdown", message="存储服务已关闭")
+    logger.info("storage_shutdown", message="Storage service shutdown")
     # 关闭实时通信
     broker = getattr(app.state, "realtime_broker", None)
     if broker is not None:
@@ -143,7 +145,7 @@ async def lifespan(app: FastAPI):
                 await close()
             except Exception:
                 pass
-    logger.info("application_shutdown", message="应用关闭")
+    logger.info("application_shutdown", message="Application shutdown")
 
 
 app = FastAPI(
@@ -166,6 +168,9 @@ app.add_middleware(RequestIDMiddleware)
 
 # 2. 日志中间件（依赖request_id）
 app.add_middleware(LoggingMiddleware)
+
+# 2.5 语言中间件（解析 locale）
+app.add_middleware(LocaleMiddleware)
 
 # 3. CORS中间件
 app.add_middleware(
@@ -199,7 +204,7 @@ async def root():
             "docs": "/docs",
             "redoc": "/redoc"
         },
-        message="Welcome to FastAPI Forge"
+        message=t("welcome")
     )
 
 
@@ -207,10 +212,7 @@ async def root():
 @app.get("/health", tags=["Health"])
 async def health_check():
     """健康检查端点"""
-    return success_response(
-        data={"status": "healthy"},
-        message="Service is healthy"
-    )
+    return success_response(data={"status": "healthy"}, message=t("health.ok"))
 
 
 if __name__ == "__main__":

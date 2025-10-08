@@ -17,6 +17,8 @@ class ErrorDetail(BaseModel):
     details: Optional[dict] = None
     field: Optional[str] = None
     request_id: Optional[str] = None
+    locale: Optional[str] = None
+    message_key: Optional[str] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     @field_serializer('timestamp')
@@ -78,7 +80,10 @@ def error_response(
     error_type: str = "BusinessError",
     details: Optional[dict] = None,
     field: Optional[str] = None,
-    request_id: Optional[str] = None
+    request_id: Optional[str] = None,
+    *,
+    locale: Optional[str] = None,
+    message_key: Optional[str] = None,
 ) -> Response:
     """
     创建错误响应
@@ -102,7 +107,9 @@ def error_response(
             type=error_type,
             details=details,
             field=field,
-            request_id=request_id
+            request_id=request_id,
+            locale=locale,
+            message_key=message_key,
         )
     )
 

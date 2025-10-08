@@ -15,16 +15,18 @@ from .response import error_response
 from shared.codes import BusinessCode
 from core.logging_config import get_logger
 from domain.common.exceptions import BusinessException
+from core.i18n import t, get_locale
 
 
 class UnauthorizedException(BusinessException):
     """未授权异常"""
     
-    def __init__(self, message: str = "未授权访问"):
+    def __init__(self, message: str = "Unauthorized"):
         super().__init__(
             code=BusinessCode.UNAUTHORIZED,
             message=message,
-            error_type="Unauthorized"
+            error_type="Unauthorized",
+            message_key="auth.unauthorized",
         )
 
 
@@ -34,8 +36,9 @@ class TokenExpiredException(BusinessException):
     def __init__(self):
         super().__init__(
             code=BusinessCode.TOKEN_EXPIRED,
-            message="Token已过期",
-            error_type="TokenExpired"
+            message="Token expired",
+            error_type="TokenExpired",
+            message_key="auth.token.expired",
         )
 
 
@@ -46,9 +49,11 @@ class RateLimitException(BusinessException):
         details = {"retry_after": retry_after} if retry_after else None
         super().__init__(
             code=BusinessCode.TOO_MANY_REQUESTS,
-            message="请求过于频繁，请稍后重试",
+            message="Too many requests, please try again later",
             error_type="RateLimit",
-            details=details
+            details=details,
+            message_key="rate.limited",
+            format_params=details or {},
         )
 
 
@@ -101,13 +106,20 @@ def register_exception_handlers(app: FastAPI):
     async def business_exception_handler(request: Request, exc: BusinessException):
         """处理业务异常"""
         request_id = getattr(getattr(request, "state", object()), "request_id", None) or str(uuid.uuid4())
+        locale = get_locale()
+        # Render i18n message if message_key is provided, otherwise fallback to original message
+        fmt_params = getattr(exc, "format_params", None)
+        params = fmt_params if isinstance(fmt_params, dict) else (exc.details or {})
+        translated = t(getattr(exc, "message_key", "") or exc.message, **params)
         response = error_response(
             code=exc.code,
-            message=exc.message,
+            message=translated,
             error_type=exc.error_type,
             details=exc.details,
             field=exc.field,
-            request_id=request_id
+            request_id=request_id,
+            locale=locale,
+            message_key=getattr(exc, "message_key", None),
         )
         status_code = _business_code_to_http_status(exc.code)
         # 对于401可选地返回WWW-Authenticate，但仅对需要的场景添加
@@ -124,13 +136,16 @@ def register_exception_handlers(app: FastAPI):
         first_error = errors[0] if errors else {}
         field = ".".join(str(loc) for loc in first_error.get("loc", [])[1:])
         
+        locale = get_locale()
         response = error_response(
             code=BusinessCode.PARAM_VALIDATION_ERROR,
-            message=f"参数验证失败: {first_error.get('msg', '未知错误')}",
+            message=t("validation.failed", reason=first_error.get('msg', 'unknown')),
             error_type="ValidationError",
             details={"errors": errors},
             field=field,
-            request_id=request_id
+            request_id=request_id,
+            locale=locale,
+            message_key="validation.failed",
         )
         return JSONResponse(
             status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -153,12 +168,14 @@ def register_exception_handlers(app: FastAPI):
         }
         code = code_mapping.get(exc.status_code, BusinessCode.SYSTEM_ERROR)
         
+        locale = get_locale()
         response = error_response(
             code=code,
-            message=exc.detail,
+            message=str(exc.detail),
             error_type="HTTPError",
             details={"status_code": exc.status_code},
-            request_id=request_id
+            request_id=request_id,
+            locale=locale,
         )
         return JSONResponse(
             status_code=exc.status_code,
@@ -179,12 +196,15 @@ def register_exception_handlers(app: FastAPI):
                 "traceback": traceback.format_exc()
             }
         
+        locale = get_locale()
         response = error_response(
             code=BusinessCode.SYSTEM_ERROR,
-            message="系统内部错误",
+            message=t("error.internal"),
             error_type="SystemError",
             details=details,
-            request_id=request_id
+            request_id=request_id,
+            locale=locale,
+            message_key="error.internal",
         )
         
         # 记录日志（使用结构化日志）

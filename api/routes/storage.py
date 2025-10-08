@@ -30,6 +30,7 @@ from core.response import (
     Response as ApiResponse,
     success_response,
 )
+from core.i18n import t
  
 
 
@@ -73,7 +74,7 @@ async def presign_upload(
             expires_in=presigned.expires_in,
         ),
     )
-    return success_response(data=response_data, message="预签名生成成功")
+    return success_response(data=response_data, message=t("storage.presign.success"))
 
 
 @router.post(
@@ -89,21 +90,21 @@ async def confirm_presigned_upload(
     try:
         payload.ensure_identifier()
     except ValueError as exc:  # pragma: no cover - defensive guard
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=t("file.identifier.missing")) from exc
 
     if payload.id is not None:
         asset = await service.get_asset_raw(payload.id)
     elif payload.key:
         asset = await service.get_asset_by_key_raw(payload.key)
     else:  # pragma: no cover - already guarded
-        raise HTTPException(status_code=400, detail="缺少文件标识")
+        raise HTTPException(status_code=400, detail=t("file.identifier.missing"))
 
     if not current_user.is_superuser and asset.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权操作该文件")
+        raise HTTPException(status_code=403, detail=t("file.permission.denied.operate"))
 
     await service.confirm_direct_upload(asset_id=asset.id)
 
-    return success_response(data={"ok": True}, message="文件已激活")
+    return success_response(data={"ok": True}, message=t("file.activate.success"))
 
 
 @router.post(
@@ -126,4 +127,4 @@ async def upload_file(
         kind=kind,
         content_type=file.content_type,
     )
-    return success_response(data=resp, message="文件上传成功")
+    return success_response(data=resp, message=t("file.upload.success"))
