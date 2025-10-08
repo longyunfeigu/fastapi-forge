@@ -23,12 +23,11 @@
 - 注册首超：
   1) 先只读统计用户总数；若可能为 0 且配置了 Redis，则获取分布式锁 `first_superuser_init`；
   2) 锁内再次确认后创建用户，确保并发场景下只有一个“首个用户”。
-- 登录/认证：
+- 登录/认证与令牌：
   - 认证在领域服务中完成（密码校验、活跃状态检查）。
-  - 生成 `access_token`（短期）与 `refresh_token`（长期）。
-  - `verify_token(token)`：
-    - 过期 → 抛出 `TokenExpiredException`（由全局异常处理为 401 + 过期语义）。
-    - 无效 → 返回 `None`（API 返回 401 无效凭据）。
+  - 由应用层 `TokenService` 生成 `access_token`（短期、无状态）与 `refresh_token`（长期、可轮转）。
+  - 统一校验入口：`TokenService.verify_access_token()`（API/WS/gRPC 复用）。
+  - 刷新与安全：`TokenService.rotate_refresh_token()` 实现刷新令牌轮转、防重用检测与家族撤销。
 - 用户资料：查询、更新、改密、激活/停用、删除。数据修改前由领域实体做规则校验。
 
 ---

@@ -6,7 +6,7 @@ import contextvars
 import grpc
 
 from core.logging_config import get_logger
-from application.services.user_service import UserApplicationService
+from application.services.token_service import TokenService
 from infrastructure.unit_of_work import SQLAlchemyUnitOfWork
 
 
@@ -36,7 +36,7 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
             "/grpc.health.v1.Health/Check",
             "/grpc.health.v1.Health/Watch",
         }
-        self._user_service = UserApplicationService(uow_factory=SQLAlchemyUnitOfWork)
+        self._token_service = TokenService(uow_factory=SQLAlchemyUnitOfWork)
 
     async def intercept_service(
         self,
@@ -69,7 +69,7 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
             # Validate token and set current user id into contextvar
             user_id: int | None = None
             try:
-                user_id = await self._user_service.verify_token(token)
+                user_id = await self._token_service.verify_access_token(token)
             except Exception:
                 # TokenExpiredException and others are handled by ExceptionMappingInterceptor
                 raise
@@ -96,4 +96,3 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
                 response_serializer=handler.response_serializer,
             )
         return handler
-

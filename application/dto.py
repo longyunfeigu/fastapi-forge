@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_serializ
 from shared.codes import BusinessCode
 from typing import Optional, Any, Literal
 from datetime import datetime, timezone
-from core.config import settings
+from pydantic import model_validator
 
 
 class DTOBase(BaseModel):
@@ -107,22 +107,42 @@ class ChangePasswordDTO(DTOBase):
 
 
 class PaginationParams(DTOBase):
-    """分页参数（页码/每页大小），自动派生 skip/limit"""
+    """分页参数（页码/每页大小），自动派生 skip/limit。
+
+    注意：默认值在实例化时从应用设置读取，避免在类定义阶段
+    导入并实例化全局配置导致的副作用。
+    """
     page: int = Field(1, ge=1, description="页码，从1开始")
-    size: int = Field(
-        default=settings.DEFAULT_PAGE_SIZE,
+    size: Optional[int] = Field(
+        default=None,
         ge=1,
-        le=settings.MAX_PAGE_SIZE,
-        description="每页大小",
+        description="每页大小（默认取应用配置 DEFAULT_PAGE_SIZE）",
     )
+
+    @model_validator(mode="after")
+    def _apply_runtime_defaults(self):  # type: ignore[override]
+        # 延迟导入设置，只有在实例化 DTO 时才读取
+        try:
+            from core.config import settings  # local import to avoid import-time side effects
+            default_size = int(getattr(settings, "DEFAULT_PAGE_SIZE", 20))
+            max_size = int(getattr(settings, "MAX_PAGE_SIZE", 100))
+        except Exception:
+            default_size = 20
+            max_size = 100
+        if self.size is None:
+            self.size = default_size
+        # 运行时再约束最大页大小
+        if self.size > max_size:
+            self.size = max_size
+        return self
 
     @property
     def skip(self) -> int:
-        return (self.page - 1) * self.size
+        return (self.page - 1) * int(self.size or 0)
 
     @property
     def limit(self) -> int:
-        return self.size
+        return int(self.size or 0)
 
 
 class MessageDTO(DTOBase):

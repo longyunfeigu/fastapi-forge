@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorization
 from typing import Optional
 
 from application.services.user_service import UserApplicationService
+from application.services.token_service import TokenService
 from application.services.file_asset_service import FileAssetApplicationService
 from application.ports.storage import StoragePort
 from application.dto import UserResponseDTO
@@ -52,6 +53,8 @@ async def get_token(
 async def get_user_service() -> UserApplicationService:
     return UserApplicationService(uow_factory=SQLAlchemyUnitOfWork)
 
+async def get_token_service() -> TokenService:
+    return TokenService(uow_factory=SQLAlchemyUnitOfWork)
 
 async def get_storage_port(provider = Depends(get_storage)) -> StoragePort:
     return StorageProviderPortAdapter(provider)
@@ -64,10 +67,11 @@ async def get_file_asset_service(storage: StoragePort = Depends(get_storage_port
 
 async def get_current_user(
     token: str = Depends(get_token),
-    service: UserApplicationService = Depends(get_user_service)
+    token_service: TokenService = Depends(get_token_service),
+    service: UserApplicationService = Depends(get_user_service),
 ) -> UserResponseDTO:
     """获取当前登录用户"""
-    user_id = await service.verify_token(token)
+    user_id = await token_service.verify_access_token(token)
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

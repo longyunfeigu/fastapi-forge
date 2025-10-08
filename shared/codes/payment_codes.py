@@ -23,7 +23,7 @@ PROVIDER_STATUS_TO_INTERNAL = {
     "stripe": {
         "requires_payment_method": "failed",
         "requires_action": "pending",
-        "processing": "processing",
+        "processing": "pending",
         "requires_capture": "pending",
         "succeeded": "succeeded",
         "canceled": "canceled",

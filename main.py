@@ -14,7 +14,7 @@ from api.middleware import RequestIDMiddleware, LoggingMiddleware
 from core.config import settings
 from core.exceptions import register_exception_handlers
 from core.response import success_response
-from core.logging_config import get_logger
+from core.logging_config import get_logger, configure_logging
 from infrastructure.database import create_tables
 from infrastructure.external.cache import (
     init_redis_client,
@@ -36,7 +36,8 @@ from infrastructure.realtime.brokers import (
 )
 
 
-# 获取logger
+# 初始化日志：在入口处显式配置，避免模块导入时的副作用
+configure_logging()
 logger = get_logger(__name__)
 
 

@@ -1,7 +1,7 @@
 """
 用户API路由 - FastAPI表现层
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Security
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Security, Request
 from typing import Any
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional
@@ -46,30 +46,59 @@ async def register(
 
 @router.post("/login", summary="用户登录", response_model=TokenDTO)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     service: UserApplicationService = Depends(get_user_service)
 ):
     """
     用户登录获取访问令牌
-    
+
     支持用户名或邮箱登录
+
+    支持刷新令牌轮转（Refresh Token Rotation）：
+    - 每次刷新时旧令牌失效
+    - 检测令牌重用攻击
+    - 追踪设备和IP
     """
     login_data = LoginDTO(
         username=form_data.username,
         password=form_data.password
     )
-    token = await service.login(login_data)
+    # 提取设备信息和IP
+    device_info = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+
+    token = await service.login(
+        login_data,
+        device_info=device_info,
+        ip_address=ip_address
+    )
     # 返回扁平结构，符合 OAuth2 密码模式的期望
     return token
 
 
 @router.post("/refresh", summary="刷新访问令牌", response_model=TokenDTO)
 async def refresh(
+    request: Request,
     body: RefreshTokenDTO,
     service: UserApplicationService = Depends(get_user_service)
 ):
-    """使用刷新令牌换取新的访问令牌"""
-    return await service.refresh_token(body.refresh_token)
+    """
+    使用刷新令牌换取新的访问令牌
+
+    刷新令牌轮转（Refresh Token Rotation）：
+    - 旧刷新令牌立即失效，返回新的刷新令牌
+    - 防止令牌重放攻击
+    - 如果检测到已使用的令牌被再次使用，撤销整个令牌家族
+    """
+    device_info = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+
+    return await service.refresh_token(
+        body.refresh_token,
+        device_info=device_info,
+        ip_address=ip_address
+    )
 
 
 @router.get("/me", summary="获取当前用户信息", response_model=ApiResponse[UserResponseDTO])
@@ -209,3 +238,46 @@ async def delete_user(
             detail="用户不存在"
         )
     return success_response(data=None, message="用户删除成功")
+
+
+
+@router.get("/me/sessions", summary="获取活跃会话列表", response_model=ApiResponse[Any])
+async def get_active_sessions(
+    current_user: UserResponseDTO = Depends(get_current_active_user),
+    service: UserApplicationService = Depends(get_user_service)
+):
+    """
+    获取当前用户的所有活跃登录会话
+
+    返回：
+    - 会话创建时间
+    - 会话过期时间  
+    - 设备信息（User-Agent）
+    - IP地址
+    """
+    sessions = await service.get_active_sessions(current_user.id)
+    return success_response(
+        data=sessions,
+        message=f"找到 {len(sessions)} 个活跃会话"
+    )
+
+
+@router.post("/me/logout-all", summary="登出所有设备", response_model=ApiResponse[Any])
+async def logout_all_devices(
+    current_user: UserResponseDTO = Depends(get_current_active_user),
+    service: UserApplicationService = Depends(get_user_service)
+):
+    """
+    登出所有设备（撤销所有刷新令牌）
+
+    安全功能：
+    - 撤销当前用户的所有刷新令牌
+    - 用于账户被盗用时紧急登出
+    - 不影响已发放的访问令牌（直到过期）
+    """
+    count = await service.logout_all_devices(current_user.id)
+    return success_response(
+        data={"revoked_count": count},
+        message=f"已撤销 {count} 个刷新令牌"
+    )
+

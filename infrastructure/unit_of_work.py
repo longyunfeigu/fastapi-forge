@@ -12,6 +12,9 @@ from infrastructure.repositories.user_repository import SQLAlchemyUserRepository
 from infrastructure.repositories.file_asset_repository import (
     SQLAlchemyFileAssetRepository,
 )
+from infrastructure.repositories.refresh_token_repository import (
+    SQLAlchemyRefreshTokenRepository,
+)
 
 
 class SQLAlchemyUnitOfWork(AbstractUnitOfWork):
@@ -30,12 +33,15 @@ class SQLAlchemyUnitOfWork(AbstractUnitOfWork):
         self.session: Optional[AsyncSession] = session
         self.user_repository = None  # type: ignore[assignment]
         self.file_asset_repository = None  # type: ignore[assignment]
+        self.refresh_token_repository = None  # type: ignore[assignment]
 
     async def __aenter__(self) -> "SQLAlchemyUnitOfWork":
         if self.session is None:
             self.session = self._session_factory()
         self.user_repository = SQLAlchemyUserRepository(self.session)
         self.file_asset_repository = SQLAlchemyFileAssetRepository(
+            self.session)
+        self.refresh_token_repository = SQLAlchemyRefreshTokenRepository(
             self.session)
         # 仅在非只读模式下显式开启事务
         if not self._readonly:
@@ -59,6 +65,7 @@ class SQLAlchemyUnitOfWork(AbstractUnitOfWork):
                 self.session = None
             self.user_repository = None  # type: ignore[assignment]
             self.file_asset_repository = None  # type: ignore[assignment]
+            self.refresh_token_repository = None  # type: ignore[assignment]
 
     async def commit(self) -> None:
         if self._readonly:

@@ -17,6 +17,7 @@ from application.dto import (
 from application.services.file_asset_service import FileAssetApplicationService
 from core.response import (
     Response as ApiResponse,
+    PaginatedData,
     paginated_response,
     success_response,
 )
@@ -36,7 +37,7 @@ def _get_owner_filter(current_user: UserResponseDTO) -> Optional[int]:
 @router.get(
     "",
     summary="文件列表",
-    response_model=ApiResponse,
+    response_model=ApiResponse[PaginatedData[FileAssetDTO]],
 )
 async def list_files(
     page: int = Query(1, ge=1),
@@ -159,22 +160,17 @@ async def generate_download_url(
 
 @router.delete(
     "/{asset_id}",
-    summary="删除文件",
+    summary="删除文件（软删除）",
     response_model=ApiResponse[dict],
 )
 async def delete_file(
     asset_id: int,
-    purge: bool = Query(False, description="是否物理删除"),
     current_user: UserResponseDTO = Depends(get_current_active_user),
     service: FileAssetApplicationService = Depends(get_file_asset_service),
 ):
     asset = await service.get_asset_raw(asset_id)
     if not current_user.is_superuser and asset.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权删除该文件")
-
-    if purge:
-        await service.purge_asset(asset_id)
-        return success_response({"purged": True}, message="文件已物理删除")
 
     updated = await service.soft_delete(asset_id)
     return success_response(

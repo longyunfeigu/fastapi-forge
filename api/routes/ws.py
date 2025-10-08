@@ -14,8 +14,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from application.services.realtime_service import RealtimeService
 from application.ports.realtime import Envelope
 from application.services.user_service import UserApplicationService
+from application.services.token_service import TokenService
 from core.logging_config import get_logger
-from api.dependencies import get_user_service
+from api.dependencies import get_user_service, get_token_service
 from core.config import settings
 
 
@@ -47,6 +48,7 @@ def get_realtime_service_from_app(ws: WebSocket) -> RealtimeService:
 async def websocket_endpoint(
     ws: WebSocket,
     user_service: UserApplicationService = Depends(get_user_service),
+    token_service: TokenService = Depends(get_token_service),
 ) -> None:
     await ws.accept()
     # Authenticate
@@ -55,7 +57,7 @@ async def websocket_endpoint(
         await ws.close(code=1008)
         return
     try:
-        user_id = await user_service.verify_token(token)
+        user_id = await token_service.verify_access_token(token)
     except Exception:
         # TokenExpired handled by HTTP routes; here we simply deny
         user_id = None

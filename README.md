@@ -55,6 +55,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+重要说明（SECRET_KEY）
+
+- `SECRET_KEY` 为必填项：应用在加载配置时会校验，生产环境必须设置高强度、唯一的密钥（可使用环境变量 `SECRET_KEY` 或 `JWT_SECRET_KEY`）。
+- 测试环境：`tests/conftest.py` 会在用例收集前自动注入一个默认 `SECRET_KEY`，无需额外手动配置即可运行单元测试。
+
 ### 3. 使用Docker Compose启动
 
 ```bash
@@ -149,6 +154,9 @@ python examples/messaging_demo.py consume --topic demo.topic.v1 --group demo-gro
 - 统一使用 `core.logging_config.get_logger(__name__)` 获取 `logger`。
 - 不使用标准库 `logging.getLogger` 直接输出，确保日志经过 structlog 处理链（开发环境控制台可读、生产环境 JSON）。
 - 外围模块（Celery 任务、外部客户端、Redis 客户端等）同样遵循本约定。
+
+初始化时机
+- 日志初始化现在由入口文件负责（参见 `main.py` 中对 `configure_logging()` 的调用），避免在模块导入阶段改写全局日志处理器，降低对测试/脚本的副作用。
 
 ### 请求日志中间件（可开关/脱敏）
 - 按环境与请求头控制是否记录请求体：

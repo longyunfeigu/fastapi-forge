@@ -1,6 +1,7 @@
 import asyncio
 
 from core.config import settings
+from core.logging_config import configure_logging
 from core.logging_config import get_logger
 from grpc_app.server import create_server
 
@@ -9,6 +10,8 @@ logger = get_logger(__name__)
 
 
 async def main() -> None:
+    # Ensure logging configured for gRPC entrypoint
+    configure_logging()
     if not settings.grpc.enabled:
         logger.warning("grpc_disabled", message="gRPC disabled by config (GRPC__ENABLED=false)")
         return
@@ -27,4 +30,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

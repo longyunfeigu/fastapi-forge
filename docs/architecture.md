@@ -86,6 +86,69 @@
 
 ---
 
+## 跨层职责（认证与令牌）
+
+认证/令牌能力以“应用层编排 + 基础设施持久化”的方式落地：
+
+- Access Token（访问令牌）
+  - 应用层 `TokenService` 负责生成与校验（JWT，无状态，不落库）；
+  - 被 API / WebSocket / gRPC 三处依赖注入用于鉴权；
+  - 过期时间较短，提升撤销近似效果（如需强撤销，可扩展服务端 denylist）。
+- Refresh Token（刷新令牌）
+  - 需要持久化（仅存哈希），支撑轮转、防重用与撤销；
+  - ORM 模型在基础设施层（`infrastructure/models/refresh_token.py`），仓储实现（`.../repositories/refresh_token_repository.py`）；
+  - 应用层 `TokenService.rotate_refresh_token()` 统一实现家族链追踪（`family_id`）、标记已用、重用检测与整家族撤销。
+
+依赖方向：API/WS/gRPC → TokenService（Application） → UoW/仓储（Infrastructure，仅在刷新场景）。领域层保持纯业务，不绑定具体存储/JWT 实现。
+
+---
+
+## 时序图（登录/刷新/轮转/撤销）
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant API as API Layer
+  participant App as TokenService (Application)
+  participant UoW as UnitOfWork
+  participant Repo as RefreshTokenRepository
+
+  Note over C,API: 登录（用户名/密码）
+  C->>API: POST /users/login
+  API->>App: authenticate + create_access_token + create_refresh_token
+  App->>UoW: open (rw)
+  App->>Repo: create(jti, user_id, family_id, token_hash, ...)
+  UoW-->>App: commit
+  API-->>C: {access_token, refresh_token}
+
+  Note over C,API: 使用 access 访问受保护资源
+  C->>API: GET /users/me (Authorization: Bearer <access>)
+  API->>App: verify_access_token
+  App-->>API: user_id | TokenExpiredException | None
+  API-->>C: 200 | 401 (expired/invalid)
+
+  Note over C,API: 刷新令牌（轮转）
+  C->>API: POST /users/refresh {refresh_token}
+  API->>App: rotate_refresh_token(refresh)
+  App->>UoW: open (rw)
+  App->>Repo: get_by_jti(refresh.jti)
+  App->>Repo: mark_as_used(old_jti)
+  App->>Repo: create(new_jti, same family_id, parent_jti=old)
+  UoW-->>App: commit
+  API-->>C: {new access, new refresh}
+
+  Note over C,API: 撤销（登出所有设备）
+  C->>API: POST /users/me/logout-all
+  API->>App: revoke_all_user_tokens(user_id)
+  App->>UoW: open (rw)
+  App->>Repo: revoke_all_user_tokens(user_id)
+  UoW-->>App: commit
+  API-->>C: {revoked_count}
+```
+
+---
+
 ## API 层（表现层）
 - 认证依赖：`api/dependencies.py`
   - 支持 OAuth2 密码模式（Swagger UI）与 Bearer（直调），统一提取 Token → 应用层校验

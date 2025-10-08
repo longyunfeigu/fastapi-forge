@@ -74,5 +74,6 @@ def get_logger(name: str = __name__) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)
 
 
-# 初始化配置
-configure_logging()
+# Note: do not auto-configure on import to avoid side effects in
+# libraries and test collection. Call `configure_logging()` from the
+# application entrypoints (e.g., `main.py`, `grpc_main.py`).

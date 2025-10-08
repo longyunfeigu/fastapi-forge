@@ -75,33 +75,34 @@ async def init_storage_client() -> None:
     
     try:
         config = get_storage_config()
-        
+
         # Create provider
         provider = await create_provider(config)
-        
+
         # Apply middleware
         middlewares = []
-        
+
         # Add logging middleware
         middlewares.append(LoggingMiddleware())
-        
+
         # Add validation middleware if configured
+        s = settings.storage
         if s.validation_enabled:
             max_size = s.max_file_size
             allowed_types = s.allowed_types
             middlewares.append(ValidationMiddleware(max_size, allowed_types))
-        
+
         # Apply middleware
         _storage_client = apply_middleware(provider, middlewares)
-        
+
         logger.info(
-            "Storage client initialized",
+            "storage_client_initialized",
             provider=config.type,
             bucket=config.bucket
         )
-        
+
     except Exception as e:
-        logger.error(f"Failed to initialize storage client", error=str(e))
+        logger.error("storage_client_init_failed", error=str(e))
         raise
 
 

@@ -110,3 +110,75 @@ curl http://localhost:8000/api/v1/users/me \
 - DTO/Response 作为对外契约；不要将 ORM 模型直接泄露到 API。
 - 对外字段/行为如需变更，先改 DTO 与 Service，再改路由，避免跨层耦合。
 
+---
+
+## 删除策略（文件资源）
+
+- 默认仅支持“软删除”：`DELETE /api/v1/files/{asset_id}` 将资源标记为 `deleted`（不会立即移除对象存储上的文件）。
+- 物理删除（远端对象 + DB 记录）仅在服务内部提供：`FileAssetApplicationService.purge_asset_by_id(key)` 等，不对外暴露开关以避免误删。
+- 推荐操作顺序：
+  - 业务删除 → 软删（可恢复/审计）。
+  - 后台保留清理任务按策略批量“物理删除”真正无引用的对象（如超期、回收站清空）。
+
+---
+
+## 安全建议
+
+- 配置：
+  - 强制设置 `SECRET_KEY`（或 `JWT_SECRET_KEY`）；生产环境使用高强度、唯一密钥。
+  - 合理配置 CORS；默认开发便捷设置不要用于生产。
+  - Token 过期与刷新：`ACCESS_TOKEN_EXPIRE_MINUTES`、`REFRESH_TOKEN_EXPIRE_DAYS`。
+  - Webhook：建议启用 IP 白名单与时间容忍度，见“Webhook 安全”。
+- 日志：
+  - 使用结构化日志；请求体记录遵守脱敏与体积限制；禁止输出密钥/令牌。
+- 访问控制：
+  - 所有文件写入/删除均要求登录；跨租户/可见范围由应用层校验（如 `owner_id`）。
+
+---
+
+## Webhook 安全（支付）
+
+- 路由：`POST /api/v1/payments/webhooks/{provider}`（`stripe|alipay|wechat`）。
+- 内容类型：
+  - Alipay：`application/x-www-form-urlencoded`；其他渠道通常使用 `application/json`。
+- 签名校验：
+  - Stripe：`Stripe-Signature` + `STRIPE__WEBHOOK_SECRET`。
+  - Alipay：RSA2 签名（公钥 `ALIPAY__ALIPAY_PUBLIC_KEY_PATH`）。
+  - WeChat：SDK 校验与解密（商户/平台证书与密钥）。
+- 防重放：
+  - 使用 Redis 基于 `provider + event.id + sha256(body)` 的键进行去重；TTL 由 `PAYMENT__WEBHOOK__TOLERANCE_SECONDS` 控制（默认 300s）。
+- IP 允许列表：
+  - 环境配置 `PAYMENT__WEBHOOK__IP_ALLOWLIST`（CIDR 或 IP 列表），非白名单可直接返回 200（记录日志）以减少渠道重试风暴；生产视需要返回 4xx 并同步治理来源。
+
+---
+
+## 认证与令牌（Access / Refresh）
+
+目标：在保持 API 无状态的同时，兼顾登录会话的安全与可控性。
+
+- Access Token（访问令牌）
+  - 形式：JWT（HS256）。字段：`sub`（用户ID）、`username`、`is_superuser`、`exp`、`type=access`、`jti`。
+  - 生成与校验：`TokenService.create_access_token()` / `TokenService.verify_access_token()`。
+  - 持久化：不落库（无状态）。
+  - 使用场景：HTTP API（dependencies.get_current_user）、WebSocket 握手（`/api/v1/ws?token=...`）与 gRPC 拦截器（Authorization: Bearer）。
+  - 撤销策略：无法中心化强制撤销，依赖较短过期时间（`ACCESS_TOKEN_EXPIRE_MINUTES`）。若需“立即失效”体验，可辅以服务端 denylist（未默认实现）或缩短 TTL。
+
+- Refresh Token（刷新令牌）
+  - 形式：JWT + 数据库存证。仅存储 SHA-256 哈希，避免明文落库。
+  - 模型：`infrastructure/models/refresh_token.py`（表 `refresh_tokens`）。字段要点：`jti`、`family_id`、`parent_jti`、`token_hash`、`is_revoked`、`is_used`、`device_info`、`ip_address`、`expires_at`。
+  - 用例编排：`TokenService.rotate_refresh_token()` 实现刷新令牌轮转与安全策略：
+    1) 验证签名/过期 → 2) 校验是否撤销 → 3) 检测是否已使用（检测重用）→ 4) 标记旧令牌已使用 → 5) 颁发新 access/refresh。
+    6) 若检测到“已使用令牌再次被使用”，撤销整个令牌家族（`revoke_family()`）。
+  - 撤销能力：
+    - 单个撤销：`revoke_token(jti)`；整用户撤销：`revoke_all_user_tokens(user_id)`（“登出所有设备”）。
+    - 清理：`cleanup_expired(before)` 删除过期且已撤销/已使用的记录。
+
+- 流程与职责分工：
+  - 登录：返回 access + refresh。访问令牌短期可用；刷新令牌长期可用（可轮转）。
+  - 刷新：仅接受 refresh；成功后轮转出新的 access+refresh，并使旧 refresh 立刻失效（`is_used=true`）。
+  - 统一验证入口：API/WS/gRPC 均依赖 `TokenService.verify_access_token`；异常策略：过期抛 `TokenExpiredException`，其它无效返回 `None`（上层 401）。
+
+- 客户端安全建议：
+  - 总是通过 HTTPS 传输；不要在日志中输出 token。
+  - Access Token 建议放入内存/短期缓存；Refresh Token 不建议暴露给 JS（优先考虑 HttpOnly Cookie 等方案）。
+  - 若使用浏览器 SPA，可将刷新动作放在受保护路径并结合 CSRF 防护。

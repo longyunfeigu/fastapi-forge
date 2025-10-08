@@ -177,8 +177,9 @@ class WechatPayClient(BasePaymentClient):
             raise PaymentProviderError(str(exc), provider=self.provider) from exc
 
     def parse_webhook(self, headers: dict[str, Any], body: bytes) -> WebhookEvent:  # type: ignore[override]
-        if not WeChatPay:
-            raise RuntimeError("wechatpayv3 SDK not installed")
+        # Avoid relying on global SDK at parse time; rely on injected client
+        if getattr(self, "_wx", None) is None:
+            raise RuntimeError("WeChatPay client not configured")
         try:
             code, data = self._wx.callback(headers, body)  # type: ignore[attr-defined]
             if code != 0:

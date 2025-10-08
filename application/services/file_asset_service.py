@@ -123,8 +123,10 @@ class FileAssetApplicationService:
                 metadata=metadata if metadata is not None else asset.metadata,
             )
             asset.mark_active()
-        updated = await repo.update(asset)
-        return self._to_dto(updated)
+            updated = await repo.update(asset)
+            # 显式提交，确保在作用域内完成持久化
+            await uow.commit()
+            return self._to_dto(updated)
 
     # ---------------------- Orchestration with Storage ----------------------
     async def purge_asset(self, asset_id: int) -> None:
@@ -466,3 +468,36 @@ class FileAssetApplicationService:
     async def purge_by_key(self, key: str) -> None:
         async with self._uow_factory() as uow:
             await uow.file_asset_repository.delete_by_key(key)
+
+    # ---- Unified naming (wrappers) ----
+    async def purge_asset_by_id(self, asset_id: int) -> None:
+        """Physically delete remote object and DB record by id (wrapper)."""
+        await self.purge_asset(asset_id)
+
+    async def purge_asset_by_key(self, key: str) -> None:
+        """Physically delete remote object and DB record by key (new)."""
+        if self._storage is None:
+            raise RuntimeError("Storage port not configured for FileAssetApplicationService")
+        async with self._uow_factory() as uow:
+            repo = uow.file_asset_repository
+            asset = await repo.get_by_key(key)
+            if asset is None:
+                raise FileAssetNotFoundException(key=key)
+            try:
+                await self._storage.delete(asset.key)
+            except Exception:
+                pass
+            await repo.delete(asset.id or 0)
+            await uow.commit()
+
+    async def delete_record_by_id(self, asset_id: int) -> None:
+        """Delete DB record only by id (soft API should be preferred)."""
+        async with self._uow_factory() as uow:
+            await uow.file_asset_repository.delete(asset_id)
+            await uow.commit()
+
+    async def delete_record_by_key(self, key: str) -> None:
+        """Delete DB record only by key (no remote object deletion)."""
+        async with self._uow_factory() as uow:
+            await uow.file_asset_repository.delete_by_key(key)
+            await uow.commit()
