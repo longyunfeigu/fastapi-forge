@@ -90,6 +90,11 @@ python examples/messaging_demo.py consume --topic demo.topic.v1 --group demo-gro
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
+国际化（Swagger UI）
+- 通过查询参数或请求头切换语言：
+  - 示例：`/docs?lang=zh-CN` 或设置请求头 `X-Lang: zh-CN`
+- 也支持标准 `Accept-Language` 自动协商（如 `zh-CN,zh;q=0.9,en;q=0.8`）
+
 ## 🔑 主要功能
 
 ### 用户管理

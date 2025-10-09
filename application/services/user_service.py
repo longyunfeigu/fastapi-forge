@@ -91,10 +91,12 @@ class UserApplicationService:
             )
 
             access_token = self._token_service.create_access_token(user)
+            # 重要：在同一事务/会话中创建刷新令牌，避免 MySQL 外键检查与用户行更新产生锁等待
             refresh_token = await self._token_service.create_refresh_token(
                 user,
                 device_info=device_info,
-                ip_address=ip_address
+                ip_address=ip_address,
+                uow=uow,
             )
 
             return TokenDTO(

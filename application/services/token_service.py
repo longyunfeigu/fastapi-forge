@@ -67,7 +67,9 @@ class TokenService:
         family_id: Optional[str] = None,
         parent_jti: Optional[str] = None,
         device_info: Optional[str] = None,
-        ip_address: Optional[str] = None
+        ip_address: Optional[str] = None,
+        *,
+        uow: Optional[AbstractUnitOfWork] = None,
     ) -> str:
         """
         创建刷新令牌并存储到数据库
@@ -103,7 +105,19 @@ class TokenService:
         token_hash = self._hash_token(token)
 
         # 存储到数据库
-        async with self._uow_factory() as uow:
+        if uow is None:
+            async with self._uow_factory() as uow_local:
+                await uow_local.refresh_token_repository.create(
+                    jti=jti,
+                    user_id=user.id,
+                    family_id=family_id,
+                    parent_jti=parent_jti,
+                    token_hash=token_hash,
+                    expires_at=expire,
+                    device_info=device_info,
+                    ip_address=ip_address,
+                )
+        else:
             await uow.refresh_token_repository.create(
                 jti=jti,
                 user_id=user.id,
@@ -112,7 +126,7 @@ class TokenService:
                 token_hash=token_hash,
                 expires_at=expire,
                 device_info=device_info,
-                ip_address=ip_address
+                ip_address=ip_address,
             )
 
         logger.info(
@@ -218,12 +232,14 @@ class TokenService:
 
             # 8. 生成新令牌对（使用相同的 family_id，记录 parent_jti）
             new_access_token = self.create_access_token(user)
+            # 重要：在同一事务内生成并持久化新的刷新令牌，避免外键检查时与其他事务互相等待
             new_refresh_token = await self.create_refresh_token(
                 user,
                 family_id=family_id,
                 parent_jti=jti,
                 device_info=device_info,
-                ip_address=ip_address
+                ip_address=ip_address,
+                uow=uow,
             )
 
             logger.info(

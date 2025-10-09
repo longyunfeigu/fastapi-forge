@@ -120,59 +120,83 @@ class SQLAlchemyRefreshTokenRepository(RefreshTokenRepository):
         return False
 
     async def revoke_family(self, family_id: str, reason: Optional[str] = None) -> int:
-        """撤销整个令牌家族"""
-        result = await self.session.execute(
-            update(RefreshTokenModel)
+        """撤销整个令牌家族
+
+        为了避免部分驱动在 UPDATE rowcount 统计上的差异，这里先锁定目标行再更新，
+        返回值以锁定行数为准，确保与业务感知一致。
+        """
+        # 1) 锁定目标行并收集ID（与当前事务一致性视图）
+        ids_result = await self.session.execute(
+            select(RefreshTokenModel.id)
             .where(
                 and_(
                     RefreshTokenModel.family_id == family_id,
-                    RefreshTokenModel.is_revoked == False  # noqa: E712
+                    RefreshTokenModel.is_revoked == False,  # noqa: E712
                 )
             )
+            .with_for_update()
+        )
+        ids = [row[0] for row in ids_result.all()]
+        if not ids:
+            return 0
+
+        # 2) 执行更新
+        await self.session.execute(
+            update(RefreshTokenModel)
+            .where(RefreshTokenModel.id.in_(ids))
             .values(
                 is_revoked=True,
                 revoked_at=datetime.now(timezone.utc),
-                revoke_reason=reason or "Family revoked due to security breach"
+                revoke_reason=reason or "Family revoked due to security breach",
             )
         )
 
-        count = result.rowcount
-        if count > 0:
-            logger.warning(
-                "refresh_token_family_revoked",
-                family_id=family_id,
-                count=count,
-                reason=reason
-            )
-
-        return count
+        logger.warning(
+            "refresh_token_family_revoked",
+            family_id=family_id,
+            count=len(ids),
+            reason=reason,
+        )
+        return len(ids)
 
     async def revoke_all_user_tokens(self, user_id: int, reason: Optional[str] = None) -> int:
-        """撤销用户所有令牌"""
-        result = await self.session.execute(
-            update(RefreshTokenModel)
+        """撤销用户所有令牌
+
+        采用“先锁定并统计、再批量更新”的策略，避免某些 MySQL 驱动在 rowcount 语义上的差异
+        造成返回 0 的困惑。
+        """
+        # 1) 锁定目标行并收集ID
+        ids_result = await self.session.execute(
+            select(RefreshTokenModel.id)
             .where(
                 and_(
                     RefreshTokenModel.user_id == user_id,
-                    RefreshTokenModel.is_revoked == False  # noqa: E712
+                    RefreshTokenModel.is_revoked == False,  # noqa: E712
                 )
             )
+            .with_for_update()
+        )
+        ids = [row[0] for row in ids_result.all()]
+        if not ids:
+            return 0
+
+        # 2) 执行更新
+        await self.session.execute(
+            update(RefreshTokenModel)
+            .where(RefreshTokenModel.id.in_(ids))
             .values(
                 is_revoked=True,
                 revoked_at=datetime.now(timezone.utc),
-                revoke_reason=reason or "User logout all devices"
+                revoke_reason=reason or "User logout all devices",
             )
         )
 
-        count = result.rowcount
-        if count > 0:
-            logger.info(
-                "refresh_tokens_user_revoked",
-                user_id=user_id,
-                count=count
-            )
-
-        return count
+        logger.info(
+            "refresh_tokens_user_revoked",
+            user_id=user_id,
+            count=len(ids),
+        )
+        return len(ids)
 
     async def is_revoked(self, jti: str) -> bool:
         """检查令牌是否已撤销"""

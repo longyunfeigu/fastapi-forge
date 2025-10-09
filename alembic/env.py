@@ -76,7 +76,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode with AsyncEngine."""
+    """Run migrations in 'online' mode with AsyncEngine.
+
+    Fix: ensure we pass a synchronous function into `connection.run_sync`.
+    The previous implementation defined `do_run_migrations` as `async def`,
+    which caused "coroutine was never awaited" and resulted in empty revisions.
+    """
     configuration = config.get_section(config.config_ini_section)
     configuration["sqlalchemy.url"] = get_database_url()
 
@@ -86,8 +91,15 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
-    async def do_run_migrations(connection):
-        context.configure(connection=connection, target_metadata=target_metadata)
+    def do_run_migrations(connection):
+        # Helpful compare options for autogenerate
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
+            render_as_batch=(connection.dialect.name == "sqlite"),
+        )
         with context.begin_transaction():
             context.run_migrations()
 
